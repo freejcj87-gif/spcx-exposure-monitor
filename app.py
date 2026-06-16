@@ -12,7 +12,9 @@ Streamlit + yfinance 라이브 대시보드. 접속할 때마다 시세 자동 �
 import datetime as dt
 import json
 import pathlib
+import re
 import urllib.request
+import urllib.parse
 import streamlit as st
 import yfinance as yf
 try:
@@ -229,6 +231,23 @@ FALLBACK_LAUNCHES = [
     dict(net="2026-11~12", rocket="Starship", name="Mars 발사 윈도우", sig="화성 무인 탐사"),
 ]
 
+@st.cache_data(ttl=86400, show_spinner=False)
+def translate_ko(text: str) -> str:
+    """영문 제목을 국문으로 번역 (한글이거나 실패하면 원문 유지)."""
+    if not text or not re.search(r"[A-Za-z]", text):
+        return text
+    if len(re.findall(r"[가-힣]", text)) > 3:        # 이미 한글 제목
+        return text
+    try:
+        url = ("https://translate.googleapis.com/translate_a/single"
+               "?client=gtx&sl=en&tl=ko&dt=t&q=" + urllib.parse.quote(text))
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=8) as r:
+            data = json.load(r)
+        return "".join(seg[0] for seg in data[0] if seg and seg[0]) or text
+    except Exception:
+        return text
+
 def q(ticker: str) -> dict:
     d = fetch_quote(ticker)
     if d.get("price") is None:                 # 라이브 실패 → 폴백
@@ -249,9 +268,13 @@ sp = q(TICKERS["sp500"]); nq = q(TICKERS["nasdaq"])
 etf_q = [(tk, nm, q(tk)) for tk, nm in TICKERS["etf"]]
 peer_q = [(tk, nm, note, q(tk)) for tk, nm, note in TICKERS["peers"]]
 news = fetch_news(TICKERS["spcx"]) or FALLBACK_NEWS
+news = [dict(n, t=translate_ko(n.get("t", ""))) for n in news]   # 영문 제목 → 국문
 domestic = CFG.get("domestic_fund", [])
 hist = fetch_history(TICKERS["spcx"])
 launches = fetch_launches() or FALLBACK_LAUNCHES
+_recent = (hist["Close"] if hist else [])[-10:]                  # 최근 10영업일 종가
+trig_window = len(_recent)
+trig_met = sum(1 for c in _recent if c >= CONSTANTS["trigger"])  # 트리거 충족 일수
 
 px = spcx["price"]; fxr = fx["price"]
 valUSD = C["shares"] * px
@@ -389,6 +412,8 @@ border-bottom:1px solid var(--line2);font-size:13.5px;}.kv:last-child{border-bot
 .gauge-lab{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:6px;}
 .gauge{position:relative;height:9px;border-radius:6px;background:linear-gradient(90deg,#e6f4ec,#fbf1e8 55%,#fae0db);}
 .gmark{position:absolute;top:-3px;width:3px;height:15px;border-radius:2px;transform:translateX(-50%);}
+.gfill{position:absolute;top:0;left:0;height:100%;background:rgba(31,58,95,.20);border-radius:6px 0 0 6px;}
+.gtrig{position:absolute;top:-4px;width:3px;height:17px;background:var(--red);transform:translateX(-50%);border-radius:2px;}
 .gcap{font-size:11.5px;color:var(--muted);margin-top:9px;line-height:1.5;}.gcap b{color:var(--ink);}
 .expo-track{height:11px;background:var(--line);border-radius:7px;overflow:hidden;margin-top:6px;}
 .expo-fill{height:100%;background:linear-gradient(90deg,var(--orange),#f0925f);border-radius:7px;}
@@ -443,11 +468,12 @@ def render() -> str:
       <div class="gauge-wrap">
         <div class="gauge-lab"><span>BEP {usd2(C['bep'])}</span><span>애널 목표(고) {usd2(ANALYST['high'])}</span></div>
         <div class="gauge">
-          <div class="gmark" style="left:{gpos(C['bep']):.1f}%;background:#9aa3b0"></div>
-          <div class="gmark" style="left:{gpos(C['trigger']):.1f}%;background:var(--red)"></div>
+          <div class="gfill" style="width:{gpos(px):.1f}%"></div>
+          <div class="gtrig" style="left:{gpos(C['trigger']):.1f}%"></div>
           <div class="gmark" style="left:{gpos(px):.1f}%;background:var(--navy)"></div>
         </div>
-        <div class="gcap">현재가 <b>{usd2(px)}</b> · 조건부 트리거 {usd2(C['trigger'])} <b style="color:var(--orange)">{'상회 ('+pct(aboveTrig)+')' if aboveTrig>=0 else '까지 '+pct(-aboveTrig)}</b> · 애널 평균 {usd2(ANALYST['avg'])}</div>
+        <div class="gcap"><b style="color:var(--ink)">조건부 트리거</b>: 첫 실적발표 이전 <b style="color:var(--ink)">10영업일 중 5영업일 이상 종가 {usd2(C['trigger'])} 상회</b> 시 +10% 추가 해제<br>
+          현재가 <b>{usd2(px)}</b> · 트리거 <b style="color:var(--orange)">{'상회 ('+pct(aboveTrig)+')' if aboveTrig>=0 else '까지 '+pct(-aboveTrig)}</b> · 최근 {trig_window}영업일 중 <b style="color:var(--orange)">{trig_met}일</b> 충족 (목표 5일)</div>
       </div>
       <div class="kv" style="margin-top:15px;border-top:1px solid var(--line);padding-top:13px">
         <span class="k">익스포저 / 자기자본 비중<br><small style="font-size:10.5px">자기자본 {eok(C['equityKRW'])} 가정</small></span>
@@ -458,8 +484,10 @@ def render() -> str:
         f'<tr class="{"hi" if hi else ""}"><td class="stage">{st_}<small>{sub}</small></td>'
         f'<td>{desc}</td><td class="pct">{p}%</td></tr>'
         for st_, sub, desc, p, hi in LOCKUP)
-    lockup = f"""<div class="ctitle">Lock-up / Release 일정<span class="note">발행주식 누적 비중</span></div>
-      <table><thead><tr><th>단계</th><th>내용</th><th>누적</th></tr></thead><tbody>{lockrows}</tbody></table>"""
+    lockup = f"""<div class="ctitle">Lock-up / Release · 핵심 촉매<span class="note">발행주식 누적 비중</span></div>
+      <table><thead><tr><th>단계</th><th>내용</th><th>누적</th></tr></thead><tbody>{lockrows}</tbody></table>
+      <div style="margin-top:12px;font-size:11.5px;color:var(--muted);line-height:1.65">
+        <b style="color:var(--ink)">핵심 촉매</b> · 2Q 실적(~8월)→a 해제 · 3Q 실적(~11월)→d 해제(단일 최대) · 조건부 트리거 {usd2(C['trigger'])} · Musk 366일 해제(2027-06-12)</div>"""
 
     etf_cards = "".join(
         f'<div class="mini"><div class="nm"><span>{tk}</span> · {nm}</div>'
@@ -518,14 +546,14 @@ def render() -> str:
         <div class="h-right">기준: <b>{asof}</b><br><span class="badge">접속 시 자동 갱신 (yfinance 라이브)</span></div>
       </div>
       <div class="hero">{hero}</div>
-      <div style="margin-bottom:15px"><div class="card"><div class="ctitle">SPCX 주가 추이 <span class="note">일봉 · 거래량</span></div>{chart_svg(hist)}</div></div>
       <div class="grid2">
         <div class="col"><div class="card">{position}{domestic_table_html()}</div><div class="card">{lockup}</div></div>
-        <div class="col"><div class="card">{etf}</div><div class="card">{market}</div><div class="card news">{news_card}</div></div>
+        <div class="col">
+          <div class="card"><div class="ctitle">SPCX 주가 추이 <span class="note">일봉·거래량</span></div>{chart_svg(hist)}</div>
+          <div class="card">{etf}</div><div class="card">{market}</div><div class="card news">{news_card}</div></div>
       </div>
       <div style="margin-top:15px"><div class="card ph">{fx_card}</div></div>
-      <div class="grid-half"><div class="card">{peer}</div><div class="card">{catalyst}</div></div>
-      <div style="margin-top:15px"><div class="card">{launch_html()}</div></div>
+      <div class="grid-half"><div class="card">{peer}</div><div class="card">{launch_html()}</div></div>
       <div class="foot">{foot}</div>
     </div>"""
 
