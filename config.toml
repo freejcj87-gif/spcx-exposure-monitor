@@ -11,7 +11,7 @@ bep          = 140.77           # BEP 주가 (USD)
 buy_fx       = 1532.59          # 매입 환율 (KRW/USD)
 
 [firm]                          # 당사 일반
-equity_krw   = 2000000000000    # 자기자본 (현재 ₩2조 가정 — 실제값으로 교체)
+equity_krw   = 2563700000000    # 자기자본 ₩2조 5,637억 ('25.12 기준)
 
 [spacex]                        # SpaceX 공개 정보
 ipo_price    = 135.00
