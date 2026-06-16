@@ -185,21 +185,30 @@ FALLBACK_NEWS = [
 
 @st.cache_data(ttl=900, show_spinner=False)
 def fetch_history(ticker: str, period: str = "3mo") -> dict:
-    """일봉 OHLCV (캔들+거래량용). 실패 시 None."""
+    """일봉 OHLCV. 신규 상장주의 daily 결측일(NaN)은 1시간봉을 일봉으로 합쳐 보완."""
     try:
-        h = yf.Ticker(ticker).history(period=period, interval="1d")
-        h = h.dropna(subset=["Open", "High", "Low", "Close"])   # NaN 캔들 제거
-        if h.empty:
+        t = yf.Ticker(ticker)
+        rows = {}   # 'YYYY-MM-DD' -> (O, H, L, C, V)
+        daily = t.history(period=period, interval="1d").dropna(subset=["Open", "High", "Low", "Close"])
+        for ts, r in daily.iterrows():
+            rows[str(ts)[:10]] = (r["Open"], r["High"], r["Low"], r["Close"], r["Volume"])
+        # daily 에 없는 최근 거래일은 1시간봉 → 일봉 리샘플로 보완
+        intr = t.history(period="5d", interval="1h")
+        if not intr.empty:
+            agg = intr.resample("1D").agg({"Open": "first", "High": "max", "Low": "min",
+                                           "Close": "last", "Volume": "sum"}).dropna()
+            for ts, r in agg.iterrows():
+                rows.setdefault(str(ts)[:10], (r["Open"], r["High"], r["Low"], r["Close"], r["Volume"]))
+        if not rows:
             return None
-        h = h.reset_index()
-        dcol = "Date" if "Date" in h.columns else h.columns[0]
+        dates = sorted(rows)
         return {
-            "Date": [str(x)[:10] for x in h[dcol]],
-            "Open": [float(x) for x in h["Open"]],
-            "High": [float(x) for x in h["High"]],
-            "Low": [float(x) for x in h["Low"]],
-            "Close": [float(x) for x in h["Close"]],
-            "Volume": [float(x) for x in h["Volume"]],
+            "Date": dates,
+            "Open": [float(rows[d][0]) for d in dates],
+            "High": [float(rows[d][1]) for d in dates],
+            "Low": [float(rows[d][2]) for d in dates],
+            "Close": [float(rows[d][3]) for d in dates],
+            "Volume": [float(rows[d][4]) for d in dates],
         }
     except Exception:
         return None
@@ -281,12 +290,17 @@ trig_window = len(_recent)
 trig_met = sum(1 for c in _recent if c >= CONSTANTS["trigger"])  # 트리거 충족 일수
 
 px = spcx["price"]; fxr = fx["price"]
+# 신규 상장주 일봉 지연 대비: 시세가 폴백(stale)/결측이면 분봉기반 hist 최신 종가로 보완
+if hist and hist.get("Close") and (spcx.get("_stale") or px is None):
+    px = hist["Close"][-1]
+    if len(hist["Close"]) > 1:
+        spcx["prev"] = hist["Close"][-2]
 valUSD = C["shares"] * px
 plUSD = valUSD - C["costUSD"]; retUSD = plUSD / C["costUSD"] * 100
 valKRW = valUSD * fxr
 plKRW = valKRW - C["costKRW"]; retKRW = plKRW / C["costKRW"] * 100
 upside = (px - C["ipoPrice"]) / C["ipoPrice"] * 100
-dayChg = spcx["day"] if spcx["day"] is not None else (px - spcx["prev"]) / spcx["prev"] * 100 if spcx["prev"] else 0
+dayChg = ((px - spcx["prev"]) / spcx["prev"] * 100) if spcx.get("prev") else (spcx.get("day") or 0)
 aboveTrig = (px - C["trigger"]) / C["trigger"] * 100
 expoRatio = valKRW / C["equityKRW"] * 100
 fxChg = (fxr - C["buyFX"]) / C["buyFX"] * 100
