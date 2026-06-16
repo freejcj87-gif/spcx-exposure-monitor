@@ -10,7 +10,9 @@ Streamlit + yfinance 라이브 대시보드. 접속할 때마다 시세 자동 �
 비밀번호: .streamlit/secrets.toml 의 APP_PASSWORD (미설정 시 게이트 생략)
 """
 import datetime as dt
+import json
 import pathlib
+import urllib.request
 import streamlit as st
 import yfinance as yf
 try:
@@ -176,6 +178,57 @@ FALLBACK_NEWS = [
          s="TradingView", u="https://www.tradingview.com/symbols/NASDAQ-SPCX/"),
 ]
 
+@st.cache_data(ttl=900, show_spinner=False)
+def fetch_history(ticker: str, period: str = "3mo") -> dict:
+    """일봉 OHLCV (캔들+거래량용). 실패 시 None."""
+    try:
+        h = yf.Ticker(ticker).history(period=period, interval="1d")
+        if h.empty:
+            return None
+        h = h.reset_index()
+        dcol = "Date" if "Date" in h.columns else h.columns[0]
+        return {
+            "Date": [str(x)[:10] for x in h[dcol]],
+            "Open": [float(x) for x in h["Open"]],
+            "High": [float(x) for x in h["High"]],
+            "Low": [float(x) for x in h["Low"]],
+            "Close": [float(x) for x in h["Close"]],
+            "Volume": [float(x) for x in h["Volume"]],
+        }
+    except Exception:
+        return None
+
+@st.cache_data(ttl=21600, show_spinner=False)   # 6시간 캐시 (API rate limit 보호)
+def fetch_launches(n: int = 7) -> list:
+    """SpaceX 예정 발사 (Launch Library 2, lsp__id=121=SpaceX). 실패 시 None."""
+    url = ("https://ll.thespacedevs.com/2.2.0/launch/upcoming/"
+           "?lsp__id=121&limit=%d" % n)
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "spcx-monitor/1.0"})
+        with urllib.request.urlopen(req, timeout=12) as r:
+            data = json.load(r)
+        out = []
+        for L in data.get("results", []):
+            name = L.get("name", "") or ""
+            rocket = (((L.get("rocket") or {}).get("configuration") or {}).get("name")
+                      or (name.split("|")[0].strip() if "|" in name else ""))
+            mission_name = name.split("|")[1].strip() if "|" in name else name
+            mission = L.get("mission") or {}
+            mtype = mission.get("type") or ""
+            orbit = ((mission.get("orbit") or {}) or {}).get("abbrev") or ""
+            sig = " · ".join([s for s in [mtype, orbit] if s])
+            out.append(dict(net=(L.get("net") or "")[:10], rocket=rocket,
+                            name=mission_name, sig=sig))
+        return out or None
+    except Exception:
+        return None
+
+FALLBACK_LAUNCHES = [
+    dict(net="2026-06-17", rocket="Falcon 9", name="Starlink Group (위성 인터넷 증설)", sig="LEO · 통신"),
+    dict(net="~2026-07", rocket="Starship V3", name="Flight 13 (2호기 시험비행)", sig="차세대 초대형 발사체"),
+    dict(net="2026-11~12", rocket="Starship", name="Mars 발사 윈도우", sig="화성 무인 탐사"),
+]
+
 def q(ticker: str) -> dict:
     d = fetch_quote(ticker)
     if d.get("price") is None:                 # 라이브 실패 → 폴백
@@ -196,6 +249,9 @@ sp = q(TICKERS["sp500"]); nq = q(TICKERS["nasdaq"])
 etf_q = [(tk, nm, q(tk)) for tk, nm in TICKERS["etf"]]
 peer_q = [(tk, nm, note, q(tk)) for tk, nm, note in TICKERS["peers"]]
 news = fetch_news(TICKERS["spcx"]) or FALLBACK_NEWS
+domestic = CFG.get("domestic_fund", [])
+hist = fetch_history(TICKERS["spcx"])
+launches = fetch_launches() or FALLBACK_LAUNCHES
 
 px = spcx["price"]; fxr = fx["price"]
 valUSD = C["shares"] * px
@@ -225,6 +281,71 @@ def eok(n):  return f"{n/1e8:,.0f}억"
 def pct(n):  return ("+" if n >= 0 else "") + f"{n:.1f}%"
 def sgn(n):  return "pos" if n >= 0 else "neg"
 def tcap(n): return f"≈ ${n/1e12:.1f}T"
+
+# ---- SPCX 일봉 캔들 + 거래량 (인라인 SVG) ----
+def chart_svg(h) -> str:
+    if not h or not h.get("Close"):
+        return '<div style="color:var(--muted);font-size:12.5px;padding:24px 0">차트 데이터 없음</div>'
+    O, H, L, Cl, V, D = h["Open"], h["High"], h["Low"], h["Close"], h["Volume"], h["Date"]
+    n = len(Cl)
+    W, Ht, padL, padR, padT = 760, 300, 50, 14, 14
+    priceH, gap, volH = 188, 14, 56
+    pBot = padT + priceH; vTop = pBot + gap; vBot = vTop + volH
+    plotW = W - padL - padR
+    slot = plotW / n
+    bw = max(2.0, min(26.0, slot * 0.55))
+    pmin, pmax = min(L), max(H)
+    if pmax == pmin: pmax = pmin + 1
+    rng = pmax - pmin; pmin -= rng * 0.06; pmax += rng * 0.06; rng = pmax - pmin
+    vmax = max(V) or 1.0
+    yP = lambda p: padT + (pmax - p) / rng * priceH
+    xC = lambda i: padL + slot * i + slot / 2
+    s = []
+    for gp in (pmax, (pmax + pmin) / 2, pmin):
+        y = yP(gp)
+        s.append(f'<line x1="{padL}" y1="{y:.1f}" x2="{W-padR}" y2="{y:.1f}" stroke="var(--line)" stroke-width="1"/>')
+        s.append(f'<text x="{padL-6}" y="{y+3:.1f}" text-anchor="end" font-size="9" fill="var(--muted)">{gp:.0f}</text>')
+    s.append(f'<text x="{padL-6}" y="{vTop+8:.1f}" text-anchor="end" font-size="8" fill="var(--muted)">Vol</text>')
+    for i in range(n):
+        col = "var(--green)" if Cl[i] >= O[i] else "var(--red)"
+        x = xC(i)
+        s.append(f'<line x1="{x:.1f}" y1="{yP(H[i]):.1f}" x2="{x:.1f}" y2="{yP(L[i]):.1f}" stroke="{col}" stroke-width="1"/>')
+        yo, yc = yP(O[i]), yP(Cl[i]); ytop = min(yo, yc); bh = max(1.5, abs(yc - yo))
+        s.append(f'<rect x="{x-bw/2:.1f}" y="{ytop:.1f}" width="{bw:.1f}" height="{bh:.1f}" fill="{col}"/>')
+        vh = V[i] / vmax * volH
+        s.append(f'<rect x="{x-bw/2:.1f}" y="{vBot-vh:.1f}" width="{bw:.1f}" height="{vh:.1f}" fill="{col}" opacity="0.45"/>')
+    for i in sorted(set([0, n // 2, n - 1])):
+        s.append(f'<text x="{xC(i):.1f}" y="{vBot+16:.1f}" text-anchor="middle" font-size="9" fill="var(--muted)">{D[i][5:]}</text>')
+    note = "" if n >= 5 else f'<text x="{W-padR}" y="{padT+8}" text-anchor="end" font-size="9" fill="var(--muted)">상장 직후 — {n}거래일</text>'
+    return f'<svg viewBox="0 0 {W} {Ht}" width="100%" preserveAspectRatio="xMidYMid meet" style="display:block">{"".join(s)}{note}</svg>'
+
+# ---- 국내펀드 구성 표 ----
+def domestic_table_html() -> str:
+    if not domestic:
+        return ""
+    rows = ""; tsh = 0; tcu = 0.0
+    for m in domestic:
+        sh = int(m["shares"]); cu = float(m["cost_usd"]); tsh += sh; tcu += cu
+        hi = ' class="hi"' if m.get("self") else ''
+        rows += (f'<tr{hi}><td>{m["name"]}</td><td style="text-align:right">{sh:,}</td>'
+                 f'<td style="text-align:right">{usd(cu)}</td><td style="text-align:right">{usd(sh*px)}</td></tr>')
+    rows += (f'<tr style="font-weight:800"><td>합계</td><td style="text-align:right">{tsh:,}</td>'
+             f'<td style="text-align:right">{usd(tcu)}</td><td style="text-align:right">{usd(tsh*px)}</td></tr>')
+    return (f'<div style="margin-top:16px;border-top:1px solid var(--line);padding-top:14px">'
+            f'<div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:8px">'
+            f'국내펀드 구성 (미래에셋 에이펙스펀드) · 배정 기준 · 음영=당사</div>'
+            f'<table><thead><tr><th>주체</th><th>주식수</th><th>약정금액(USD)</th><th>현재평가(USD)</th></tr></thead>'
+            f'<tbody>{rows}</tbody></table></div>')
+
+# ---- 로켓 발사 스케줄 ----
+def launch_html() -> str:
+    src = "Launch Library 라이브" if launches is not FALLBACK_LAUNCHES else "예정(폴백)"
+    rows = "".join(
+        f'<div class="cat"><div class="dt">{l.get("net","")}</div>'
+        f'<div class="dd"><b>{l.get("rocket","")}</b>{" · "+l["name"] if l.get("name") else ""}'
+        f'{" <small>· "+l["sig"]+"</small>" if l.get("sig") else ""}</div></div>'
+        for l in launches)
+    return f'<div class="ctitle">로켓 발사 스케줄 <span class="note">{src}</span></div>{rows}'
 
 # ============================================================
 # 5. HTML 렌더 (정적 HTML 디자인 그대로)
@@ -397,12 +518,14 @@ def render() -> str:
         <div class="h-right">기준: <b>{asof}</b><br><span class="badge">접속 시 자동 갱신 (yfinance 라이브)</span></div>
       </div>
       <div class="hero">{hero}</div>
+      <div style="margin-bottom:15px"><div class="card"><div class="ctitle">SPCX 주가 추이 <span class="note">일봉 · 거래량</span></div>{chart_svg(hist)}</div></div>
       <div class="grid2">
-        <div class="col"><div class="card">{position}</div><div class="card">{lockup}</div></div>
+        <div class="col"><div class="card">{position}{domestic_table_html()}</div><div class="card">{lockup}</div></div>
         <div class="col"><div class="card">{etf}</div><div class="card">{market}</div><div class="card news">{news_card}</div></div>
       </div>
       <div style="margin-top:15px"><div class="card ph">{fx_card}</div></div>
       <div class="grid-half"><div class="card">{peer}</div><div class="card">{catalyst}</div></div>
+      <div style="margin-top:15px"><div class="card">{launch_html()}</div></div>
       <div class="foot">{foot}</div>
     </div>"""
 

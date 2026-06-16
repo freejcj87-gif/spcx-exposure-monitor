@@ -33,3 +33,35 @@ rating = "Buy"
 enabled       = false
 notional_usd  = 0               # 환노출 금액 (USD)
 hedge_ratio   = 0               # 헤지율 (%)
+
+# ============================================================
+#  국내펀드(미래에셋 에이펙스펀드 한국펀드) 구성 — 배정 주식수/약정금액
+#  self = true 인 행이 당사(미래에셋생명보험)
+# ============================================================
+[[domestic_fund]]
+name     = "미래에셋증권"
+shares   = 1459898
+cost_usd = 205510998
+cost_krw = 314964101145
+self     = false
+
+[[domestic_fund]]
+name     = "미래에셋생명보험"
+shares   = 575111
+cost_usd = 80958878
+cost_krw = 124076767118
+self     = true
+
+[[domestic_fund]]
+name     = "미래에셋자산운용"
+shares   = 442393
+cost_usd = 62276060
+cost_krw = 95443667014
+self     = false
+
+[[domestic_fund]]
+name     = "미래에셋컨설팅"
+shares   = 8848
+cost_usd = 1245521
+cost_krw = 1908873340
+self     = false
