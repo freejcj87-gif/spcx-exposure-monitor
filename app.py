@@ -42,17 +42,33 @@ if not check_password():
 # ============================================================
 # 1. 포지션 고정값 (CONSTANTS) — 갱신 시 여기만
 # ============================================================
+def _secret(key, default):
+    """민감 포지션 값은 Secrets에서 읽음 (공개 repo에 수치를 남기지 않기 위함)."""
+    try:
+        return st.secrets.get(key, default)
+    except Exception:
+        return default
+
+# 민감값(보유주수·매입원가·BEP·환율·자기자본)은 Secrets, 공개정보(공모가·트리거·발행주식)는 소스
 CONSTANTS = dict(
-    shares=575_111,
-    costUSD=80_958_878,
-    costKRW=124_076_767_118,
-    bep=140.77,
-    buyFX=1_532.59,
+    shares=int(_secret("POS_SHARES", 0)),
+    costUSD=float(_secret("POS_COST_USD", 0)),
+    costKRW=float(_secret("POS_COST_KRW", 0)),
+    bep=float(_secret("POS_BEP", 0)),
+    buyFX=float(_secret("POS_BUY_FX", 1)),
     ipoPrice=135.00,
     trigger=175.50,
-    equityKRW=2_000_000_000_000,    # 당사 자기자본 가정 ₩2조
-    sharesOut=13_164_000_000,       # SpaceX 총 발행주식 (락업 f 100% 기준)
+    equityKRW=float(_secret("POS_EQUITY_KRW", 1)),
+    sharesOut=13_164_000_000,       # SpaceX 총 발행주식 (락업 f 100% 기준, 공개정보)
 )
+
+# 포지션 Secrets 미설정 시 친절 안내 후 중단 (0 나눗셈/오표시 방지)
+if CONSTANTS["shares"] <= 0 or CONSTANTS["costUSD"] <= 0:
+    st.error("⚠ 포지션 Secrets가 설정되지 않았습니다.\n\n"
+             "App settings → Secrets 에 POS_SHARES / POS_COST_USD / POS_COST_KRW / "
+             "POS_BEP / POS_BUY_FX / POS_EQUITY_KRW 값을 입력하세요. "
+             "(로컬은 .streamlit/secrets.toml)")
+    st.stop()
 
 # 추적 티커
 TICKERS = dict(
