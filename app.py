@@ -406,7 +406,9 @@ def render() -> str:
       <div class="foot">{foot}</div>
     </div>"""
 
-st.markdown(render(), unsafe_allow_html=True)
+# 각 줄 앞 들여쓰기를 제거해야 함 — Markdown이 들여쓴 HTML을 코드블록으로 처리하는 것 방지
+_html = "\n".join(line.lstrip() for line in render().splitlines())
+st.markdown(_html, unsafe_allow_html=True)
 
 # 수동 새로고침 버튼 (캐시 비우고 재fetch)
 if st.button("🔄 지금 새로고침"):
