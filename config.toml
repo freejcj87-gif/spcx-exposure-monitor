@@ -9,6 +9,7 @@ cost_usd     = 80958878         # 매입원가 (USD, 제반비용 포함)
 cost_krw     = 124076767118     # 매입원가 (KRW)
 bep          = 140.77           # BEP 주가 (USD)
 buy_fx       = 1532.59          # 매입 환율 (KRW/USD)
+acquired     = "2026-06-12"     # 취득일 (YTD/당월 기준 판정용)
 
 [firm]                          # 당사 일반
 equity_krw   = 2563700000000    # 자기자본 ₩2조 5,637억 ('25.12 기준)
@@ -40,6 +41,7 @@ hedge_ratio   = 0               # 헤지율 (%)
 # ============================================================
 [[domestic_fund]]
 name     = "미래에셋증권"
+short    = "증권"
 shares   = 1459898
 cost_usd = 205510998
 cost_krw = 314964101145
@@ -47,6 +49,7 @@ self     = false
 
 [[domestic_fund]]
 name     = "미래에셋생명보험"
+short    = "생명"
 shares   = 575111
 cost_usd = 80958878
 cost_krw = 124076767118
@@ -54,6 +57,7 @@ self     = true
 
 [[domestic_fund]]
 name     = "미래에셋자산운용"
+short    = "운용"
 shares   = 442393
 cost_usd = 62276060
 cost_krw = 95443667014
@@ -61,6 +65,7 @@ self     = false
 
 [[domestic_fund]]
 name     = "미래에셋컨설팅"
+short    = "컨설팅"
 shares   = 8848
 cost_usd = 1245521
 cost_krw = 1908873340

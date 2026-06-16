@@ -312,8 +312,15 @@ stale = spcx.get("_stale") or fx.get("_stale")
 now = dt.datetime.now()
 asof = now.strftime("%Y-%m-%d %H:%M KST") + (" · ⚠ 라이브 실패, 폴백값" if stale else " · 라이브")
 
-# 기간별 평가손익 기준가 (당일=전일종가 / YTD=연초 첫 종가 / 당월=월초 첫 종가)
-base_day = spcx.get("prev")
+# 기간별 평가손익 기준가
+#  - 취득이 해당 기간(올해/이번달) 내면 기준 = 취득단가(=BEP) → 누적=YTD=당월
+#  - 취득이 이전 기간이면 기준 = 그 기간초 종가
+#  - 당일 = 전일 종가
+cost_ps = C["costUSD"] / C["shares"]               # 취득 단가 (= BEP $140.77)
+base_day = spcx.get("prev") or cost_ps
+_acq = CFG["position"].get("acquired", "")
+_ay = int(_acq[:4]) if len(_acq) >= 4 else None
+_am = int(_acq[5:7]) if len(_acq) >= 7 else None
 def _pbase(kind):
     if not hist:
         return None
@@ -323,8 +330,8 @@ def _pbase(kind):
         if kind == "mtd" and int(d[:4]) == now.year and int(d[5:7]) == now.month:
             return c
     return None
-base_ytd = _pbase("ytd") or base_day
-base_mtd = _pbase("mtd") or base_day
+base_ytd = cost_ps if _ay == now.year else (_pbase("ytd") or cost_ps)
+base_mtd = cost_ps if (_ay == now.year and _am == now.month) else (_pbase("mtd") or cost_ps)
 
 # ============================================================
 # 4. 포맷 헬퍼
@@ -350,10 +357,12 @@ def pnl_grid() -> str:
     cum_base = C["costUSD"] / C["shares"]   # = BEP $140.77 (평가손익은 BEP 기준)
     return ('<div class="pnl">'
             + cell("누적", cum_base, f"BEP ${cum_base:.2f}")
-            + cell("YTD", base_ytd, (f"${base_ytd:,.0f}" if base_ytd else ""))
-            + cell("당월", base_mtd, (f"${base_mtd:,.0f}" if base_mtd else ""))
-            + cell("당일", base_day, (f"${base_day:,.0f}" if base_day else ""))
-            + '</div>')
+            + cell("YTD", base_ytd, (f"vs ${base_ytd:,.2f}" if base_ytd else ""))
+            + cell("당월", base_mtd, (f"vs ${base_mtd:,.2f}" if base_mtd else ""))
+            + cell("당일", base_day, (f"vs ${base_day:,.2f}" if base_day else ""))
+            + '</div>'
+            + '<div style="font-size:9.5px;color:var(--muted);margin-top:5px;line-height:1.5">'
+              "YTD·당월은 6월 취득분이라 누적과 동일 (기간 경과 시 분화) · 당일=전일 종가 대비</div>")
 
 # ---- SPCX 일봉 캔들 + 거래량 (인라인 SVG) ----
 def chart_svg(h) -> str:
@@ -399,16 +408,21 @@ def domestic_table_html() -> str:
     rows = ""; tsh = 0; tcu = 0.0
     for m in domestic:
         sh = int(m["shares"]); cu = float(m["cost_usd"]); tsh += sh; tcu += cu
+        nm = m.get("short") or m["name"]
         hi = ' class="hi"' if m.get("self") else ''
-        rows += (f'<tr{hi}><td>{m["name"]}</td><td style="text-align:right">{sh:,}</td>'
-                 f'<td style="text-align:right">{usd(cu)}</td><td style="text-align:right">{usd(sh*px)}</td></tr>')
-    rows += (f'<tr style="font-weight:800"><td>합계</td><td style="text-align:right">{tsh:,}</td>'
-             f'<td style="text-align:right">{usd(tcu)}</td><td style="text-align:right">{usd(tsh*px)}</td></tr>')
+        rows += (f'<tr{hi}><td style="white-space:nowrap">{nm}</td>'
+                 f'<td style="text-align:right;white-space:nowrap">{sh:,}</td>'
+                 f'<td style="text-align:right;white-space:nowrap">{usd(cu)}</td>'
+                 f'<td style="text-align:right;white-space:nowrap">{usd(sh*px)}</td></tr>')
+    rows += (f'<tr style="font-weight:800"><td style="white-space:nowrap">합계</td>'
+             f'<td style="text-align:right;white-space:nowrap">{tsh:,}</td>'
+             f'<td style="text-align:right;white-space:nowrap">{usd(tcu)}</td>'
+             f'<td style="text-align:right;white-space:nowrap">{usd(tsh*px)}</td></tr>')
     return (f'<div style="margin-top:16px;border-top:1px solid var(--line);padding-top:14px">'
             f'<div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:8px">'
             f'국내펀드 구성 (미래에셋 에이펙스펀드) · 배정 기준 · 음영=당사</div>'
-            f'<table><thead><tr><th>주체</th><th>주식수</th><th>약정금액(USD)</th><th>현재평가(USD)</th></tr></thead>'
-            f'<tbody>{rows}</tbody></table></div>')
+            f'<div style="overflow-x:auto"><table><thead><tr><th>주체</th><th>주식수</th><th>약정($)</th><th>평가($)</th></tr></thead>'
+            f'<tbody>{rows}</tbody></table></div></div>')
 
 # ---- 로켓 발사 스케줄 ----
 def launch_html() -> str:
