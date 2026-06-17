@@ -173,6 +173,7 @@ FALLBACK = {
     "RKLB": dict(price=102.39, prev=None, day=None, ytd=None),
     "ASTS": dict(price=82.41, prev=None, day=None, ytd=None),
     "LUNR": dict(price=26.62, prev=None, day=None, ytd=None),
+    "CMTG": dict(price=2.67, prev=None, day=None, ytd=None),
 }
 FALLBACK_NEWS = [
     dict(t="SpaceX, 첫 정규거래일 +20% 급등 — SPCX $192.50 마감, 시총 ≈$2.5조",
@@ -283,6 +284,7 @@ peer_q = [(tk, nm, note, q(tk)) for tk, nm, note in TICKERS["peers"]]
 news = fetch_news(TICKERS["spcx"]) or FALLBACK_NEWS
 news = [dict(n, t=translate_ko(n.get("t", ""))) for n in news]   # 영문 제목 → 국문
 domestic = CFG.get("domestic_fund", [])
+cmtg = q("CMTG")                                  # 환오픈 모니터용 (100% 환헷지)
 hist = fetch_history(TICKERS["spcx"])
 launches = fetch_launches() or FALLBACK_LAUNCHES
 _recent = (hist["Close"] if hist else [])[-10:]                  # 최근 10영업일 종가
@@ -434,6 +436,55 @@ def launch_html() -> str:
         for l in launches)
     return f'<div class="ctitle">로켓 발사 스케줄 <span class="note">{src}</span></div>{rows}'
 
+# ---- 환오픈 포지션 모니터 (펀드 외화 NAV/헷지/오픈) ----
+def fx_book_html() -> str:
+    def fm(v): return "-" if round(v) == 0 else f"{v:,.0f}"
+    def pcf(p): return "-" if not p else f"{round(p)}%"
+    static = CFG.get("fx_book", [])
+    def mk(r, slf=False):
+        return dict(name=r["name"], nav=float(r["nav_m"]), hedge=float(r["hedge_m"]),
+                    opn=float(r["open_m"]), pct=float(r.get("hedge_pct", 0)),
+                    krw=float(r["krw_eok"]), self=slf)
+    usd = [mk(r) for r in static if r.get("group") == "USD"]
+    usd.append(dict(name="Space X", nav=valUSD/1e6, hedge=0.0, opn=valUSD/1e6,
+                    pct=0.0, krw=valKRW/1e8, self=True))          # 100% 환오픈
+    cm = CFG.get("fx_cmtg", {})
+    cm_nav = float(cm.get("shares", 0)) * (cmtg.get("price") or 0) / 1e6
+    usd.append(dict(name="CMTG", nav=cm_nav, hedge=cm_nav, opn=0.0,
+                    pct=100.0, krw=0.0, self=False))              # 100% 환헷지
+    aud = [mk(r) for r in static if r.get("group") == "AUD"]
+
+    def row(r, ccy):
+        bg = ' style="background:var(--beige2)"' if r["self"] else ''
+        return (f'<tr{bg}><td style="white-space:nowrap">{r["name"]}</td><td>{ccy}</td>'
+                f'<td style="text-align:right">{fm(r["nav"])}</td>'
+                f'<td style="text-align:right">{fm(r["hedge"])}</td>'
+                f'<td style="text-align:right">{fm(r["opn"])}</td>'
+                f'<td style="text-align:right">{pcf(r["pct"])}</td>'
+                f'<td style="text-align:right">{fm(r["krw"])}</td></tr>')
+
+    su = {k: sum(r[k] for r in usd) for k in ("nav", "hedge", "opn", "krw")}
+    su_pct = (su["hedge"] / su["nav"] * 100) if su["nav"] else 0
+    total_krw = su["krw"] + sum(r["krw"] for r in aud)
+
+    body = "".join(row(r, "USD") for r in usd)
+    body += (f'<tr style="font-weight:800;background:#eceff3"><td>USD 소계</td><td></td>'
+             f'<td style="text-align:right">{fm(su["nav"])}</td><td style="text-align:right">{fm(su["hedge"])}</td>'
+             f'<td style="text-align:right">{fm(su["opn"])}</td><td style="text-align:right">{pcf(su_pct)}</td>'
+             f'<td style="text-align:right">{fm(su["krw"])}</td></tr>')
+    body += "".join(row(r, "AUD") for r in aud)
+    body += (f'<tr style="font-weight:800;background:var(--beige2)"><td>합계</td><td colspan="5"></td>'
+             f'<td style="text-align:right">{fm(total_krw)}</td></tr>')
+
+    cm_sh = int(cm.get("shares", 0))
+    return (f'<div class="ctitle">환오픈 포지션 모니터<span class="note">외화=백만 · 원화오픈=억원</span></div>'
+            f'<div style="overflow-x:auto"><table>'
+            f'<thead><tr><th>종목</th><th>통화</th><th>외화NAV</th><th>환헷지</th><th>환오픈</th><th>헷지%</th><th>환오픈(억원)</th></tr></thead>'
+            f'<tbody>{body}</tbody></table></div>'
+            f'<div style="font-size:9.5px;color:var(--muted);margin-top:7px;line-height:1.5">'
+            f'SpaceX·CMTG 라이브 시세 기준, 그 외 입력값 · CMTG(티커 CMTG, {cm_sh:,}주) 100% 환헷지 · '
+            f'SpaceX 100% 환오픈(미헤지) · 음영=당사 SpaceX</div>')
+
 # ============================================================
 # 5. HTML 렌더 (정적 HTML 디자인 그대로)
 # ============================================================
@@ -580,14 +631,7 @@ def render() -> str:
         f'<div class="hm">{n.get("s","")}</div></a>' for n in news[:5])
     news_card = f'<div class="ctitle">뉴스 플로우 <span class="note">SPCX 라이브</span></div>{news_html}'
 
-    fx_card = f"""<div class="ctitle">환오픈 포지션 모니터<span class="note">데이터 입력 예정</span></div>
-      <div class="ph-note">📌 당사 환오픈(USD 미헤지) 포지션 데이터 입력 예정 구역입니다. 입력 시 자동 산출됩니다 —
-      참고로 본 SpaceX 포지션 단독 기준 매입환율 {C['buyFX']:,.2f} → 현재 {fxr:,.2f}
-      (<b class="{sgn(fxChg)}">{pct(fxChg)}</b>), USD 수익률 {pct(retUSD)} 대비 KRW 수익률 {pct(retKRW)}로
-      환에서 약 {retUSD-retKRW:.1f}%p 차이가 발생했습니다.</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 28px">
-      {''.join(f'<div class="kv"><span class="k">{k}</span><span class="v">—</span></div>' for k in
-        ["환노출 금액 (USD)","헤지율","매입환율 → 현재환율","환손익 (KRW)","환율 민감도 (±10원당)","수익률 분해 (주가/환)"])}</div>"""
+    fx_card = fx_book_html()
 
     peer_first = f"""<div class="peer"><div class="pl">SPCX <small>SpaceX · 본 포지션</small></div>
       <div><div class="pp">{usd2(px)}</div><div class="pc pos">{pct(upside)} vs 공모</div></div></div>"""
@@ -623,7 +667,7 @@ def render() -> str:
           <div class="card"><div class="ctitle">SPCX 주가 추이 <span class="note">일봉·거래량</span></div>{chart_svg(hist)}</div>
           <div class="card">{etf}</div><div class="card">{market}</div><div class="card news">{news_card}</div></div>
       </div>
-      <div style="margin-top:15px"><div class="card ph">{fx_card}</div></div>
+      <div style="margin-top:15px"><div class="card">{fx_card}</div></div>
       <div class="grid-half"><div class="card">{peer}</div><div class="card">{launch_html()}</div></div>
       <div class="foot">{foot}</div>
     </div>"""
