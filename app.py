@@ -449,9 +449,10 @@ def fx_book_html() -> str:
     usd.append(dict(name="Space X", nav=valUSD/1e6, hedge=0.0, opn=valUSD/1e6,
                     pct=0.0, krw=valKRW/1e8, self=True))          # 100% 환오픈
     cm = CFG.get("fx_cmtg", {})
-    cm_nav = float(cm.get("shares", 0)) * (cmtg.get("price") or 0) / 1e6
-    usd.append(dict(name="CMTG", nav=cm_nav, hedge=cm_nav, opn=0.0,
-                    pct=100.0, krw=0.0, self=False))              # 100% 환헷지
+    _cm_val = float(cm.get("shares", 0)) * (cmtg.get("price") or 0)   # USD NAV
+    cm_nav = _cm_val / 1e6
+    usd.append(dict(name="CMTG", nav=cm_nav, hedge=0.0, opn=cm_nav,
+                    pct=0.0, krw=_cm_val * fxr / 1e8, self=False))     # 100% 환오픈
     aud = [mk(r) for r in static if r.get("group") == "AUD"]
 
     def row(r, ccy):
@@ -482,8 +483,8 @@ def fx_book_html() -> str:
             f'<thead><tr><th>종목</th><th>통화</th><th>외화NAV</th><th>환헷지</th><th>환오픈</th><th>헷지%</th><th>환오픈(억원)</th></tr></thead>'
             f'<tbody>{body}</tbody></table></div>'
             f'<div style="font-size:9.5px;color:var(--muted);margin-top:7px;line-height:1.5">'
-            f'SpaceX·CMTG 라이브 시세 기준, 그 외 입력값 · CMTG(티커 CMTG, {cm_sh:,}주) 100% 환헷지 · '
-            f'SpaceX 100% 환오픈(미헤지) · 음영=당사 SpaceX</div>')
+            f'SpaceX·CMTG 라이브 시세 기준, 그 외 입력값 · CMTG(티커 CMTG, {cm_sh:,}주)·SpaceX 모두 '
+            f'100% 환오픈(미헤지) · 음영=당사 SpaceX</div>')
 
 # ============================================================
 # 5. HTML 렌더 (정적 HTML 디자인 그대로)

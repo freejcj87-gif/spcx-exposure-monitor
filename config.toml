@@ -34,7 +34,7 @@ rating = "Buy"
 #  SpaceX·CMTG는 앱이 라이브로 계산, 아래 정적 행은 입력값
 [fx_cmtg]
 ticker = "CMTG"
-shares = 1476800                # 100% 환헷지 (오픈 0)
+shares = 1476800                # 100% 환오픈
 
 [[fx_book]]
 group = "USD"
