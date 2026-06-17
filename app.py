@@ -478,7 +478,7 @@ def fx_book_html() -> str:
              f'<td style="text-align:right">{fm(total_krw)}</td></tr>')
 
     cm_sh = int(cm.get("shares", 0))
-    return (f'<div class="ctitle">환오픈 포지션 모니터<span class="note">외화=백만 · 원화오픈=억원</span></div>'
+    return (f'<div class="ctitle">환오픈 포지션 모니터<span class="note">단위: 외화M, 원화(억원)</span></div>'
             f'<div style="overflow-x:auto"><table>'
             f'<thead><tr><th>종목</th><th>통화</th><th>외화NAV</th><th>환헷지</th><th>환오픈</th><th>헷지%</th><th>환오픈(억원)</th></tr></thead>'
             f'<tbody>{body}</tbody></table></div>'
@@ -658,7 +658,7 @@ def render() -> str:
     <div class="dash">
       <div class="top">
         <div><div class="h-title">SpaceX <span class="tk">(SPCX)</span> 익스포저 모니터</div>
-          <div class="h-sub">미래에셋생명 PI운용팀 · 미래에셋 에이펙스펀드 경유 비상장(상장전환)주 포지션</div></div>
+          <div class="h-sub">미래에셋생명 PI운용팀</div></div>
         <div class="h-right">기준: <b>{asof}</b><br><span class="badge">접속 시 자동 갱신 (yfinance 라이브)</span></div>
       </div>
       <div class="hero">{hero}</div>
