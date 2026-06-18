@@ -306,6 +306,7 @@ dayChg = ((px - spcx["prev"]) / spcx["prev"] * 100) if spcx.get("prev") else (sp
 aboveTrig = (px - C["trigger"]) / C["trigger"] * 100
 expoRatio = valKRW / C["equityKRW"] * 100
 fxChg = (fxr - C["buyFX"]) / C["buyFX"] * 100
+fxPL = valUSD * (fxr - C["buyFX"])      # 환차손익 = 현재 외화평가액 × (현재환율 − 매입환율)
 mktcap = px * C["sharesOut"]
 gMin, gMax = C["bep"], ANALYST["high"]
 def gpos(p): return max(0.0, min(100.0, (p - gMin) / (gMax - gMin) * 100))
@@ -587,6 +588,7 @@ def render() -> str:
       <div class="kv"><span class="k">현재 평가금액</span><span class="v">{usd(valUSD)} · {krw(valKRW)}</span></div>
       <div class="kv"><span class="k">평가손익 (누적·BEP ${C['bep']:.2f} 기준)</span><span class="v {sgn(plUSD)}">+{usd(plUSD)} · +{krw(plKRW)}</span></div>
       {pnl_grid()}
+      <div class="kv"><span class="k">환차손익 (매입환율 {C['buyFX']:,.2f} 대비)</span><span class="v {sgn(fxPL)}">{('+' if fxPL >= 0 else '−')}{krw(abs(fxPL))} <small style="color:var(--muted);font-weight:600">(≈{eok(abs(fxPL))}) · 현재 {fxr:,.2f}</small></span></div>
       <div class="kv"><span class="k">BEP 주가 / 현재가</span><span class="v">{usd2(C['bep'])} → {usd2(px)}</span></div>
       <div class="gauge-wrap">
         <div class="gauge-lab"><span>BEP {usd2(C['bep'])}</span><span>애널 목표(고) {usd2(ANALYST['high'])}</span></div>
