@@ -578,6 +578,7 @@ def render() -> str:
     <div class="hcard"><div class="hl">평가손익 (USD)</div><div class="hv {sgn(plUSD)}">{('+' if plUSD>=0 else '')+usd(plUSD)}</div>
       <div class="hsub">평가금액 {usd(valUSD)}</div></div>
     <div class="hcard"><div class="hl">평가손익 (KRW)</div><div class="hv sm {sgn(plKRW)}">{('+' if plKRW>=0 else '')+krw(plKRW)}</div>
+      <div class="hsub {sgn(fxPL)}" style="font-weight:700">환평가손익 {('+' if fxPL>=0 else '−')}{krw(abs(fxPL))}</div>
       <div class="hsub">평가금액 {krw(valKRW)}</div></div>
     <div class="hcard"><div class="hl">수익률</div><div class="hv {sgn(retUSD)}">{pct(retUSD)}</div>
       <div class="hsub">USD 기준 · KRW {pct(retKRW)}</div></div>"""
@@ -587,7 +588,6 @@ def render() -> str:
       <div class="kv"><span class="k">매입원가 (제반비용 포함)</span><span class="v">{usd(C['costUSD'])} · {krw(C['costKRW'])}</span></div>
       <div class="kv"><span class="k">현재 평가금액</span><span class="v">{usd(valUSD)} · {krw(valKRW)}</span></div>
       <div class="kv"><span class="k">평가손익 (누적·BEP ${C['bep']:.2f} 기준)</span><span class="v {sgn(plUSD)}">+{usd(plUSD)} · +{krw(plKRW)}</span></div>
-      <div class="kv"><span class="k">환차손익 (매입환율 {C['buyFX']:,.2f} 대비)</span><span class="v {sgn(fxPL)}">{('+' if fxPL >= 0 else '−')}{krw(abs(fxPL))} <small style="color:var(--muted);font-weight:600">(≈{eok(abs(fxPL))}) · 현재 {fxr:,.2f}</small></span></div>
       {pnl_grid()}
       <div class="kv"><span class="k">BEP 주가 / 현재가</span><span class="v">{usd2(C['bep'])} → {usd2(px)}</span></div>
       <div class="gauge-wrap">
