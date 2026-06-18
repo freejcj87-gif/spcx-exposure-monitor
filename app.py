@@ -587,8 +587,8 @@ def render() -> str:
       <div class="kv"><span class="k">매입원가 (제반비용 포함)</span><span class="v">{usd(C['costUSD'])} · {krw(C['costKRW'])}</span></div>
       <div class="kv"><span class="k">현재 평가금액</span><span class="v">{usd(valUSD)} · {krw(valKRW)}</span></div>
       <div class="kv"><span class="k">평가손익 (누적·BEP ${C['bep']:.2f} 기준)</span><span class="v {sgn(plUSD)}">+{usd(plUSD)} · +{krw(plKRW)}</span></div>
-      {pnl_grid()}
       <div class="kv"><span class="k">환차손익 (매입환율 {C['buyFX']:,.2f} 대비)</span><span class="v {sgn(fxPL)}">{('+' if fxPL >= 0 else '−')}{krw(abs(fxPL))} <small style="color:var(--muted);font-weight:600">(≈{eok(abs(fxPL))}) · 현재 {fxr:,.2f}</small></span></div>
+      {pnl_grid()}
       <div class="kv"><span class="k">BEP 주가 / 현재가</span><span class="v">{usd2(C['bep'])} → {usd2(px)}</span></div>
       <div class="gauge-wrap">
         <div class="gauge-lab"><span>BEP {usd2(C['bep'])}</span><span>애널 목표(고) {usd2(ANALYST['high'])}</span></div>
