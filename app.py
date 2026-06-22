@@ -169,7 +169,7 @@ def fetch_news(ticker: str, n: int = 5) -> list:
 
 # 폴백 (yfinance 실패 시 마지막 확인치 · 2026-06-15)
 FALLBACK = {
-    "SPCX": dict(price=192.50, prev=160.95, day=19.6, ytd=None),
+    "SPCX": dict(price=154.60, prev=185.00, day=-16.43, ytd=None),
     "KRW=X": dict(price=1513.65, prev=1520.02, day=None, ytd=None),
     "^GSPC": dict(price=7555.26, prev=7431.46, day=1.67, ytd=None),
     "^IXIC": dict(price=26683.94, prev=25888.84, day=3.07, ytd=None),
@@ -298,8 +298,9 @@ trig_window = len(_recent)
 trig_met = sum(1 for c in _recent if c >= CONSTANTS["trigger"])  # 트리거 충족 일수
 
 px = spcx["price"]; fxr = fx["price"]
-# 신규 상장주 일봉 지연 대비: 시세가 폴백(stale)/결측이면 분봉기반 hist 최신 종가로 보완
-if hist and hist.get("Close") and (spcx.get("_stale") or px is None):
+# SPCX 가격·전일종가는 공식 일봉(hist) 기준으로 통일 → 야후 일봉 종가와 일치
+# (hist는 공식 daily 우선, 아직 일봉이 안 뜬 최근 1일만 분봉으로 보완)
+if hist and hist.get("Close"):
     px = hist["Close"][-1]
     if len(hist["Close"]) > 1:
         spcx["prev"] = hist["Close"][-2]
