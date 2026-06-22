@@ -18,10 +18,13 @@ import urllib.request
 import urllib.parse
 import streamlit as st
 import yfinance as yf
+from streamlit_autorefresh import st_autorefresh
 try:
     import tomllib                 # Python 3.11+
 except ModuleNotFoundError:
     import tomli as tomllib        # 폴백 (구버전)
+
+KST = dt.timezone(dt.timedelta(hours=9))   # 서버가 UTC여도 항상 KST로 표기
 
 # ============================================================
 # 0. 페이지 설정 + 비밀번호 게이트
@@ -48,6 +51,9 @@ def check_password() -> bool:
 
 if not check_password():
     st.stop()
+
+# 열린 탭도 주기적으로 자동 재실행 → 시세 항상 최신 (접속 시에도 매번 재실행됨)
+st_autorefresh(interval=300000, key="auto_refresh")   # 5분
 
 # ============================================================
 # 1. 포지션 고정값 (CONSTANTS) — 갱신 시 여기만
@@ -125,7 +131,7 @@ def _num(x):
     except (TypeError, ValueError):
         return None
 
-@st.cache_data(ttl=900, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def fetch_quote(ticker: str) -> dict:
     """price / prevClose / dayChg% / ytd% 반환. fast_info 결측·NaN 시 None (→ 폴백)."""
     out = dict(price=None, prev=None, day=None, ytd=None)
@@ -184,7 +190,7 @@ FALLBACK_NEWS = [
          s="TradingView", u="https://www.tradingview.com/symbols/NASDAQ-SPCX/"),
 ]
 
-@st.cache_data(ttl=900, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def fetch_history(ticker: str, period: str = "3mo") -> dict:
     """일봉 OHLCV. 신규 상장주의 daily 결측일(NaN)은 1시간봉을 일봉으로 합쳐 보완."""
     try:
@@ -312,7 +318,7 @@ gMin, gMax = C["bep"], ANALYST["high"]
 def gpos(p): return max(0.0, min(100.0, (p - gMin) / (gMax - gMin) * 100))
 
 stale = spcx.get("_stale") or fx.get("_stale")
-now = dt.datetime.now()
+now = dt.datetime.now(KST)
 asof = now.strftime("%Y-%m-%d %H:%M KST") + (" · ⚠ 라이브 실패, 폴백값" if stale else " · 라이브")
 
 # 기간별 평가손익 기준가
@@ -661,7 +667,7 @@ def render() -> str:
       <div class="top">
         <div><div class="h-title">SpaceX <span class="tk">(SPCX)</span> 익스포저 모니터</div>
           <div class="h-sub">미래에셋생명 PI운용팀</div></div>
-        <div class="h-right">기준: <b>{asof}</b><br><span class="badge">접속 시 자동 갱신 (yfinance 라이브)</span></div>
+        <div class="h-right">기준: <b>{asof}</b><br><span class="badge">접속 시 + 5분마다 자동 갱신 (yfinance)</span></div>
       </div>
       <div class="hero">{hero}</div>
       <div class="grid2">
