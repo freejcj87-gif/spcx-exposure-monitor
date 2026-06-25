@@ -548,37 +548,48 @@ def fx_book_html() -> str:
             f'SpaceX·CMTG 라이브 시세 기준, 그 외 입력값 · CMTG(티커 CMTG, {cm_sh:,}주)·SpaceX 모두 '
             f'100% 환오픈(미헤지) · 음영=당사 SpaceX</div>')
 
-# ---- 전사 환오픈 익스포저 (자기자본 대비 + σ 손실) ----
+# ---- 전사 환오픈 익스포져 민감도 (SpaceX 민감도와 동일 그리드, 전사 금액) ----
 def firm_exposure_html() -> str:
     usd, aud = fx_book_data()
-    eq = C["equityKRW"] / 1e8                         # 자기자본 (억원)
     usd_open = sum(r["krw"] for r in usd)             # USD 환오픈 합 (억원)
     aud_open = sum(r["krw"] for r in aud)             # AUD 환오픈 합 (억원)
     total = usd_open + aud_open
+    eq = C["equityKRW"] / 1e8                         # 자기자본 (억원)
+    S0 = fxr
     fs = CFG.get("fx_sens", {})
     H = float(fs.get("horizon_years", 1.0))
-    v_usd = float(fs.get("annual_vol", 0.0858)) * (H ** 0.5)
-    v_aud = float(fs.get("annual_vol_aud", 0.1017)) * (H ** 0.5)
-    pw = lambda x: f"{x/eq*100:.1f}%" if eq else "-"
-    def rr(label, openk, l1, bold=False):
-        stl = ' style="font-weight:800;background:var(--beige2)"' if bold else ''
-        return (f'<tr{stl}><td>{label}</td><td style="text-align:right">{openk:,.0f}</td>'
-                f'<td style="text-align:right">{pw(openk)}</td>'
-                f'<td style="text-align:right;color:var(--red)">({l1:,.0f})</td>'
-                f'<td style="text-align:right;color:var(--red)">({2*l1:,.0f})</td></tr>')
-    tot_l1 = usd_open * v_usd + aud_open * v_aud
-    body = (rr("USD", usd_open, usd_open * v_usd)
-            + rr("AUD", aud_open, aud_open * v_aud)
-            + rr("전사 합계", total, tot_l1, bold=True))
+    av_u = float(fs.get("annual_vol", 0.0858)); av_a = float(fs.get("annual_vol_aud", 0.1017))
+    sig = S0 * av_u * (H ** 0.5)                       # USD 1σ (원)
+    ratio_a = (av_a / av_u) if av_u else 1.0           # AUD 변동성/USD 변동성
+    cols = [("−2σ", -2 * sig), ("−1σ", -sig), ("−100", -100.0), ("−50", -50.0),
+            ("현재", 0.0), ("+50", 50.0), ("+100", 100.0), ("+1σ", sig), ("+2σ", 2 * sig)]
+    def cell(v):                                       # v: 억원
+        if abs(v) < 0.05:
+            return "<td>0.0</td>"
+        if v < 0:
+            return f'<td style="color:var(--red)">({abs(v):,.1f})</td>'
+        return f"<td>{v:,.1f}</td>"
+    upl = lambda d: usd_open * (d / S0)
+    apl = lambda d: aud_open * (d / S0) * ratio_a
+    hdr = "".join(f"<th>{l}</th>" for l, _ in cols)
+    rate = "".join(f"<td>{S0 + d:,.0f}</td>" for _, d in cols)
+    rU = "".join(cell(upl(d)) for _, d in cols)
+    rA = "".join(cell(apl(d)) for _, d in cols)
+    rT = "".join(cell(upl(d) + apl(d)) for _, d in cols)
+    l2 = abs(upl(-2 * sig) + apl(-2 * sig))
     return (
-        f'<div class="ctitle">전사 환오픈 익스포저<span class="note">자기자본 {eok(C["equityKRW"])} 대비</span></div>'
+        '<div class="ctitle">전사 환오픈 익스포져 민감도 — 환 평가손익<span class="note">단위 억원 · 현재환율 대비</span></div>'
         f'<div class="senstbl" style="overflow-x:auto"><table>'
-        f'<thead><tr><th>통화</th><th>환오픈(억원)</th><th>자기자본 대비</th><th>−1σ 환손실</th><th>−2σ 환손실</th></tr></thead>'
-        f'<tbody>{body}</tbody></table></div>'
+        f"<thead><tr><th>구분 / 환율</th>{hdr}</tr></thead><tbody>"
+        f'<tr class="rate"><td>환율(원)</td>{rate}</tr>'
+        f'<tr><td>USD 환오픈 ({usd_open:,.0f}억)</td>{rU}</tr>'
+        f'<tr><td>AUD 환오픈 ({aud_open:,.0f}억)</td>{rA}</tr>'
+        f'<tr class="c3"><td>전사 합계 ({total:,.0f}억)</td>{rT}</tr>'
+        "</tbody></table></div>"
         f'<div style="font-size:10px;color:var(--muted);margin-top:9px;line-height:1.6">'
-        f'※ 환오픈 금액은 위 환오픈 포지션 모니터 기준(원화 억원). 자기자본 {eok(C["equityKRW"])}(\'25.12).<br>'
-        f'※ σ 손실 = 환오픈 × 연율변동성 × √H (USD {float(fs.get("annual_vol",0.0858))*100:.2f}% · AUD {float(fs.get("annual_vol_aud",0.1017))*100:.2f}% · H={H:g}년). '
-        f'전사 합계는 통화 동시 −σ 가정(상관 미반영, 보수적).</div>')
+        f"※ 환오픈 금액=위 환오픈 포지션 모니터 기준(억원). 자기자본 {eok(C['equityKRW'])} 대비 전사 {total/eq*100:.1f}% · −2σ 손실 {l2:,.0f}억(자기자본 {l2/eq*100:.1f}%).<br>"
+        f"※ 환율(원)=USD/KRW 그리드(1σ={sig:,.0f}원=S0×{av_u*100:.2f}%×√{H:g}). AUD는 변동성 비율 {ratio_a:.2f}배(AUD {av_a*100:.2f}%)로 환산. 표값=현재환율 대비 환손익.</div>"
+    )
 
 # ============================================================
 # 5. HTML 렌더 (정적 HTML 디자인 그대로)
