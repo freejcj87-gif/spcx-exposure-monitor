@@ -444,6 +444,45 @@ def launch_html() -> str:
         for l in launches)
     return f'<div class="ctitle">로켓 발사 스케줄 <span class="note">{src}</span></div>{rows}'
 
+# ---- 환율 민감도 (환 평가손익, 억원) ----
+def fx_sens_html() -> str:
+    S0 = fxr; V = valUSD; Cc = C["costUSD"]
+    sig = float(CFG.get("fx_sens", {}).get("sigma_krw", 130))
+    cols = [("−2σ", -2 * sig), ("−1σ", -sig), ("−100", -100.0), ("−50", -50.0),
+            ("현재", 0.0), ("+50", 50.0), ("+100", 100.0), ("+1σ", sig), ("+2σ", 2 * sig)]
+    def cell(x):
+        v = x / 1e8
+        if abs(v) < 0.05:
+            return "<td>0.0</td>"
+        if v < 0:
+            return f'<td style="color:var(--red)">({abs(v):,.1f})</td>'
+        return f"<td>{v:,.1f}</td>"
+    c1 = lambda d: V * d
+    c2 = lambda d: (V - Cc) * d
+    c3 = lambda d: (V - Cc) * d + (Cc / 3) * min(d, sig) + (Cc / 3) * min(d, 2 * sig)
+    ratio = lambda d: "100%" if d >= 2 * sig else ("67%" if d >= sig else "33%")
+    hdr = "".join(f"<th>{lab}</th>" for lab, _ in cols)
+    rate = "".join(f"<td>{S0 + d:,.0f}</td>" for _, d in cols)
+    row1 = "".join(cell(c1(d)) for _, d in cols)
+    row2 = "".join(cell(c2(d)) for _, d in cols)
+    row3 = "".join(cell(c3(d)) for _, d in cols)
+    rowr = "".join(f"<td>{ratio(d)}</td>" for _, d in cols)
+    return (
+        '<div class="ctitle">민감도 — 환 평가손익<span class="note">단위 억원 · 현재환율 대비</span></div>'
+        f'<div class="senstbl" style="overflow-x:auto"><table>'
+        f"<thead><tr><th>구분 / 환율</th>{hdr}</tr></thead><tbody>"
+        f'<tr class="rate"><td>환율(원)</td>{rate}</tr>'
+        f"<tr><td>case1 (100% 환오픈)</td>{row1}</tr>"
+        f"<tr><td>case2 (취득액 헷지·이익분 오픈)</td>{row2}</tr>"
+        f'<tr class="c3"><td>case3 (취득액 1/3 분할 헷지)</td>{row3}</tr>'
+        f'<tr class="ratio"><td>case3 헷지비율 (vs 취득액)</td>{rowr}</tr>'
+        "</tbody></table></div>"
+        f'<div style="font-size:10px;color:var(--muted);margin-top:10px;line-height:1.6">'
+        f"※ 익스포저 V=주가×주식수(현재 시가), 취득액 C={usd(Cc)}. 취득가 초과 이익(V−C)은 USD 자산이라 case2·case3도 환오픈.<br>"
+        f"※ case1=전액 V 오픈 · case2=C 헷지·이익분 오픈 · case3=C를 1/3 즉시 + 1σ·2σ서 1/3씩 추가 헷지(이익 단계 락인), 이익분 항상 오픈 → 하락 시 C/3만 보호.<br>"
+        f"※ 기준 S0=현재환율 {S0:,.1f} · 1σ={sig:,.0f}원(10년 변동성 가정). 표값은 현재환율 대비 환손익 변화.</div>"
+    )
+
 # ---- 환오픈 포지션 모니터 (펀드 외화 NAV/헷지/오픈) ----
 def fx_book_html() -> str:
     def fm(v): return "-" if round(v) == 0 else f"{v:,.0f}"
@@ -544,6 +583,13 @@ border-bottom:1px solid var(--line2);font-size:13.5px;}.kv:last-child{border-bot
 .pnl-i b{display:block;font-size:13.5px;font-weight:800;margin-top:3px;}
 .pnl-i i{display:block;font-style:normal;font-size:9.5px;font-weight:700;margin-top:1px;}
 .pnl-i u{display:block;text-decoration:none;font-size:8.5px;color:var(--muted);margin-top:3px;}
+.senstbl table{font-size:11.5px;}
+.senstbl th,.senstbl td{padding:6px 9px;white-space:nowrap;text-align:right;}
+.senstbl th:first-child,.senstbl td:first-child{text-align:left;}
+.senstbl tr.rate td{background:var(--beige2);font-weight:700;}
+.senstbl tr.c3 td{font-weight:800;color:var(--navy2);}
+.senstbl tr.c3 td:first-child{color:var(--red);}
+.senstbl tr.ratio td{color:var(--muted);font-style:italic;font-size:10.5px;}
 .gcap{font-size:11.5px;color:var(--muted);margin-top:9px;line-height:1.5;}.gcap b{color:var(--ink);}
 .expo-track{height:11px;background:var(--line);border-radius:7px;overflow:hidden;margin-top:6px;}
 .expo-fill{height:100%;background:linear-gradient(90deg,var(--orange),#f0925f);border-radius:7px;}
@@ -658,7 +704,7 @@ def render() -> str:
         for d, key, t, sub in CATALYSTS)
     catalyst = f'<div class="ctitle">촉매 캘린더<span class="note">★ = 락업/실적 핵심</span></div>{cat_rows}'
 
-    foot = (f'※ 본 대시보드는 공개 시세를 yfinance로 받은 <b>스냅샷</b>이며 실시간(틱)이 아닙니다(15분 캐시). '
+    foot = (f'※ 본 대시보드는 공개 시세를 yfinance로 받은 <b>스냅샷</b>이며 실시간(틱)이 아닙니다(5분 캐시·자동갱신).'
             f'<b>참고용</b>이며 투자자문이 아닙니다. 평가손익 = 보유 {C["shares"]:,}주 × 현재가, '
             f'매입원가는 제반비용 포함 약정액(575,111주 × BEP ${C["bep"]:.2f}). 환율 가정 매입 {C["buyFX"]:,.2f} / 자기자본 {eok(C["equityKRW"])} (\'25.12 기준). '
             f'기준 {asof}.')
@@ -678,6 +724,7 @@ def render() -> str:
           <div class="card">{etf}</div><div class="card">{market}</div><div class="card news">{news_card}</div></div>
       </div>
       <div style="margin-top:15px"><div class="card">{fx_card}</div></div>
+      <div style="margin-top:15px"><div class="card">{fx_sens_html()}</div></div>
       <div class="grid-half"><div class="card">{peer}</div><div class="card">{launch_html()}</div></div>
       <div class="foot">{foot}</div>
     </div>"""

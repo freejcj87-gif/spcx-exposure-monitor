@@ -98,3 +98,7 @@ shares   = 8848
 cost_usd = 1245521
 cost_krw = 1908873340
 self     = false
+
+# 환 민감도 가정
+[fx_sens]
+sigma_krw = 130     # USD/KRW 1σ (10년 변동성 가정, 원)
