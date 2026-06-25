@@ -138,9 +138,16 @@ def fetch_quote(ticker: str) -> dict:
     try:
         t = yf.Ticker(ticker)
         fi = getattr(t, "fast_info", {}) or {}
-        # 가격은 fast_info 우선. 결측이면 None → 호출측에서 폴백 (history 최신행은 NaN/지연 가능해 신뢰 안 함)
+        # 가격은 fast_info 우선, 결측 시 공식 일봉(dropna) 최신/직전 종가로 보완 → 항상 최신 라이브
         out["price"] = _num(fi.get("last_price") or fi.get("lastPrice"))
         out["prev"] = _num(fi.get("previous_close") or fi.get("previousClose"))
+        if out["price"] is None or out["prev"] is None:
+            d = t.history(period="1mo", interval="1d").dropna(subset=["Close"])
+            if not d.empty:
+                if out["price"] is None:
+                    out["price"] = _num(d["Close"].iloc[-1])
+                if out["prev"] is None and len(d) > 1:
+                    out["prev"] = _num(d["Close"].iloc[-2])
         if out["price"] and out["prev"]:
             out["day"] = (out["price"] - out["prev"]) / out["prev"] * 100
         ytd = t.history(period="ytd").dropna(subset=["Close"])
@@ -170,7 +177,7 @@ def fetch_news(ticker: str, n: int = 5) -> list:
 # 폴백 (yfinance 실패 시 마지막 확인치 · 2026-06-15)
 FALLBACK = {
     "SPCX": dict(price=154.60, prev=185.00, day=-16.43, ytd=None),
-    "KRW=X": dict(price=1513.65, prev=1520.02, day=None, ytd=None),
+    "KRW=X": dict(price=1543.86, prev=1535.25, day=None, ytd=None),
     "^GSPC": dict(price=7555.26, prev=7431.46, day=1.67, ytd=None),
     "^IXIC": dict(price=26683.94, prev=25888.84, day=3.07, ytd=None),
     "ARKX": dict(price=33.78, prev=34.45, day=-1.9, ytd=11.0),
