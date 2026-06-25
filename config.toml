@@ -101,4 +101,4 @@ self     = false
 
 # 환 민감도 가정
 [fx_sens]
-sigma_krw = 130     # USD/KRW 1σ (10년 변동성 가정, 원)
+sigma_krw = 139     # USD/KRW 1σ = 현재환율 × 10년 연율변동성(≈9.0%), 2026-06 기준
