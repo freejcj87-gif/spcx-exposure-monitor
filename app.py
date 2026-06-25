@@ -446,8 +446,11 @@ def launch_html() -> str:
 
 # ---- 환율 민감도 (환 평가손익, 억원) ----
 def fx_sens_html() -> str:
-    S0 = fxr; V = valUSD; Cc = C["costUSD"]
-    sig = float(CFG.get("fx_sens", {}).get("sigma_krw", 130))
+    S0 = fxr; V = valUSD
+    Cc = C["shares"] * C["ipoPrice"]              # 취득액 C = 주식수 × 취득단가($135) [엑셀 C6]
+    fs = CFG.get("fx_sens", {})
+    av = float(fs.get("annual_vol", 0.0858)); H = float(fs.get("horizon_years", 1.0))
+    sig = S0 * av * (H ** 0.5)                     # 1σ = S0 × 연율σ × √H [엑셀 C13]
     cols = [("−2σ", -2 * sig), ("−1σ", -sig), ("−100", -100.0), ("−50", -50.0),
             ("현재", 0.0), ("+50", 50.0), ("+100", 100.0), ("+1σ", sig), ("+2σ", 2 * sig)]
     def cell(x):
@@ -478,9 +481,9 @@ def fx_sens_html() -> str:
         f'<tr class="ratio"><td>case3 헷지비율 (vs 취득액)</td>{rowr}</tr>'
         "</tbody></table></div>"
         f'<div style="font-size:10px;color:var(--muted);margin-top:10px;line-height:1.6">'
-        f"※ 익스포저 V=주가×주식수(현재 시가), 취득액 C={usd(Cc)}. 취득가 초과 이익(V−C)은 USD 자산이라 case2·case3도 환오픈.<br>"
+        f"※ 익스포저 V=주가×주식수(현재 시가), 취득액 C={usd(Cc)}(=주식수×취득단가 ${C['ipoPrice']:.0f}). 취득가 초과 이익(V−C)은 USD 자산이라 case2·case3도 환오픈.<br>"
         f"※ case1=전액 V 오픈 · case2=C 헷지·이익분 오픈 · case3=C를 1/3 즉시 + 1σ·2σ서 1/3씩 추가 헷지(이익 단계 락인), 이익분 항상 오픈 → 하락 시 C/3만 보호.<br>"
-        f"※ 기준 S0=현재환율 {S0:,.1f} · 1σ={sig:,.0f}원(USD/KRW 10년 연율변동성 ≈9.0% 기준). 표값은 현재환율 대비 환손익 변화.</div>"
+        f"※ 기준 S0=현재환율 {S0:,.1f} · 1σ={sig:,.0f}원(=S0×연율σ {av*100:.2f}%×√{H:g}, 10년 변동성). 표값은 현재환율 대비 환손익 변화.</div>"
     )
 
 # ---- 환오픈 포지션 모니터 (펀드 외화 NAV/헷지/오픈) ----

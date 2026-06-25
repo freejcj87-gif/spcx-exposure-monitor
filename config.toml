@@ -101,4 +101,6 @@ self     = false
 
 # 환 민감도 가정
 [fx_sens]
-sigma_krw = 139     # USD/KRW 1σ = 현재환율 × 10년 연율변동성(≈9.0%), 2026-06 기준
+annual_vol    = 0.0858   # USD/KRW 10년 연율 변동성 (엑셀 변동성_10년 시트 산출값)
+horizon_years = 1.0      # σ 환산기간 H (1년 기준; 6M=0.5, 3M=0.25)
+# 1σ(원) = 현재환율(S0) × annual_vol × √H  → 엑셀 C13 과 동일 방식
