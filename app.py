@@ -569,14 +569,28 @@ def firm_exposure_html() -> str:
         if v < 0:
             return f'<td style="color:var(--red)">({abs(v):,.1f})</td>'
         return f"<td>{v:,.1f}</td>"
+    # SpaceX 분리: case별 기여분만 달라짐, 나머지(하와이·퍼플·CMTG·DPWA)는 고정
+    sx_krw = sum(r["krw"] for r in usd if r.get("self"))   # SpaceX 환오픈 (case1, 억원)
+    nonsx = usd_open - sx_krw                               # SpaceX 제외 USD 환오픈
+    Vsx = valUSD; Csx = C["shares"] * C["ipoPrice"]        # 시가 / 취득액($135)
+    base = lambda d: nonsx * (d / S0) + aud_open * (d / S0) * ratio_a   # SpaceX 제외 전사
+    sx1 = lambda d: Vsx * d / 1e8                                       # SpaceX 100% 오픈
+    sx2 = lambda d: (Vsx - Csx) * d / 1e8                               # 취득액 헷지
+    sx3 = lambda d: ((Vsx - Csx) * d + (Csx / 3) * (min(d, sig) + min(d, 2 * sig))) / 1e8
     upl = lambda d: usd_open * (d / S0)
     apl = lambda d: aud_open * (d / S0) * ratio_a
+    # case별 전사 환오픈 규모(억원)
+    op1 = total
+    op2 = nonsx + aud_open + (Vsx - Csx) * S0 / 1e8
+    op3 = nonsx + aud_open + (Vsx - Csx / 3) * S0 / 1e8
     hdr = "".join(f"<th>{l}</th>" for l, _ in cols)
     rate = "".join(f"<td>{S0 + d:,.0f}</td>" for _, d in cols)
     rU = "".join(cell(upl(d)) for _, d in cols)
     rA = "".join(cell(apl(d)) for _, d in cols)
-    rT = "".join(cell(upl(d) + apl(d)) for _, d in cols)
-    l2 = abs(upl(-2 * sig) + apl(-2 * sig))
+    rT1 = "".join(cell(base(d) + sx1(d)) for _, d in cols)
+    rT2 = "".join(cell(base(d) + sx2(d)) for _, d in cols)
+    rT3 = "".join(cell(base(d) + sx3(d)) for _, d in cols)
+    l2 = abs(base(-2 * sig) + sx1(-2 * sig))
     return (
         '<div class="ctitle">전사 환오픈 익스포져 민감도 — 환 평가손익<span class="note">단위 억원 · 현재환율 대비</span></div>'
         f'<div class="senstbl" style="overflow-x:auto"><table>'
@@ -584,11 +598,14 @@ def firm_exposure_html() -> str:
         f'<tr class="rate"><td>환율(원)</td>{rate}</tr>'
         f'<tr><td>USD 환오픈 ({usd_open:,.0f}억)</td>{rU}</tr>'
         f'<tr><td>AUD 환오픈 ({aud_open:,.0f}억)</td>{rA}</tr>'
-        f'<tr class="c3"><td>전사 합계 ({total:,.0f}억)</td>{rT}</tr>'
+        f'<tr class="c3"><td>전사 합계 (case1·SpaceX 100%오픈, {op1:,.0f}억)</td>{rT1}</tr>'
+        f'<tr style="font-weight:800"><td>전사 합계 (case2·취득액헷지, {op2:,.0f}억)</td>{rT2}</tr>'
+        f'<tr style="font-weight:800"><td>전사 합계 (case3·1/3단계헷지, ~{op3:,.0f}억)</td>{rT3}</tr>'
         "</tbody></table></div>"
         f'<div style="font-size:10px;color:var(--muted);margin-top:9px;line-height:1.6">'
-        f"※ 환오픈 금액=위 환오픈 포지션 모니터 기준(억원). 자기자본 {eok(C['equityKRW'])} 대비 전사 {total/eq*100:.1f}% · −2σ 손실 {l2:,.0f}억(자기자본 {l2/eq*100:.1f}%).<br>"
-        f"※ 환율(원)=USD/KRW 그리드(1σ={sig:,.0f}원=S0×{av_u*100:.2f}%×√{H:g}). AUD는 변동성 비율 {ratio_a:.2f}배(AUD {av_a*100:.2f}%)로 환산. 표값=현재환율 대비 환손익.</div>"
+        f"※ 환오픈 금액=위 환오픈 포지션 모니터 기준(억원). 자기자본 {eok(C['equityKRW'])} 대비 전사(case1) {op1/eq*100:.1f}% · case1 −2σ 손실 {l2:,.0f}억(자기자본 {l2/eq*100:.1f}%).<br>"
+        f"※ SpaceX만 헷지 가정별로 변동(case1 전액·case2 취득액헷지·case3 1/3단계헷지), 나머지 포지션·AUD는 고정. AUD는 변동성 비율 {ratio_a:.2f}배 환산.<br>"
+        f"※ 환율(원)=USD/KRW 그리드(1σ={sig:,.0f}원=S0×{av_u*100:.2f}%×√{H:g}). 표값=현재환율 대비 환손익.</div>"
     )
 
 # ============================================================
