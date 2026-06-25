@@ -493,10 +493,8 @@ def fx_sens_html() -> str:
         f"※ 기준 S0=현재환율 {S0:,.1f} · 1σ={sig:,.0f}원(=S0×연율σ {av*100:.2f}%×√{H:g}, 10년 변동성). 표값은 현재환율 대비 환손익 변화.</div>"
     )
 
-# ---- 환오픈 포지션 모니터 (펀드 외화 NAV/헷지/오픈) ----
-def fx_book_html() -> str:
-    def fm(v): return "-" if round(v) == 0 else f"{v:,.0f}"
-    def pcf(p): return "-" if not p else f"{round(p)}%"
+# ---- 환오픈 포지션 데이터 (fx_book 표 + 전사 익스포저 공용) ----
+def fx_book_data():
     static = CFG.get("fx_book", [])
     def mk(r, slf=False):
         return dict(name=r["name"], nav=float(r["nav_m"]), hedge=float(r["hedge_m"]),
@@ -507,10 +505,17 @@ def fx_book_html() -> str:
                     pct=0.0, krw=valKRW/1e8, self=True))          # 100% 환오픈
     cm = CFG.get("fx_cmtg", {})
     _cm_val = float(cm.get("shares", 0)) * (cmtg.get("price") or 0)   # USD NAV
-    cm_nav = _cm_val / 1e6
-    usd.append(dict(name="CMTG", nav=cm_nav, hedge=0.0, opn=cm_nav,
+    usd.append(dict(name="CMTG", nav=_cm_val/1e6, hedge=0.0, opn=_cm_val/1e6,
                     pct=0.0, krw=_cm_val * fxr / 1e8, self=False))     # 100% 환오픈
     aud = [mk(r) for r in static if r.get("group") == "AUD"]
+    return usd, aud
+
+# ---- 환오픈 포지션 모니터 (펀드 외화 NAV/헷지/오픈) ----
+def fx_book_html() -> str:
+    def fm(v): return "-" if round(v) == 0 else f"{v:,.0f}"
+    def pcf(p): return "-" if not p else f"{round(p)}%"
+    usd, aud = fx_book_data()
+    cm = CFG.get("fx_cmtg", {})
 
     def row(r, ccy):
         bg = ' style="background:var(--beige2)"' if r["self"] else ''
@@ -542,6 +547,38 @@ def fx_book_html() -> str:
             f'<div style="font-size:9.5px;color:var(--muted);margin-top:7px;line-height:1.5">'
             f'SpaceX·CMTG 라이브 시세 기준, 그 외 입력값 · CMTG(티커 CMTG, {cm_sh:,}주)·SpaceX 모두 '
             f'100% 환오픈(미헤지) · 음영=당사 SpaceX</div>')
+
+# ---- 전사 환오픈 익스포저 (자기자본 대비 + σ 손실) ----
+def firm_exposure_html() -> str:
+    usd, aud = fx_book_data()
+    eq = C["equityKRW"] / 1e8                         # 자기자본 (억원)
+    usd_open = sum(r["krw"] for r in usd)             # USD 환오픈 합 (억원)
+    aud_open = sum(r["krw"] for r in aud)             # AUD 환오픈 합 (억원)
+    total = usd_open + aud_open
+    fs = CFG.get("fx_sens", {})
+    H = float(fs.get("horizon_years", 1.0))
+    v_usd = float(fs.get("annual_vol", 0.0858)) * (H ** 0.5)
+    v_aud = float(fs.get("annual_vol_aud", 0.1017)) * (H ** 0.5)
+    pw = lambda x: f"{x/eq*100:.1f}%" if eq else "-"
+    def rr(label, openk, l1, bold=False):
+        stl = ' style="font-weight:800;background:var(--beige2)"' if bold else ''
+        return (f'<tr{stl}><td>{label}</td><td style="text-align:right">{openk:,.0f}</td>'
+                f'<td style="text-align:right">{pw(openk)}</td>'
+                f'<td style="text-align:right;color:var(--red)">({l1:,.0f})</td>'
+                f'<td style="text-align:right;color:var(--red)">({2*l1:,.0f})</td></tr>')
+    tot_l1 = usd_open * v_usd + aud_open * v_aud
+    body = (rr("USD", usd_open, usd_open * v_usd)
+            + rr("AUD", aud_open, aud_open * v_aud)
+            + rr("전사 합계", total, tot_l1, bold=True))
+    return (
+        f'<div class="ctitle">전사 환오픈 익스포저<span class="note">자기자본 {eok(C["equityKRW"])} 대비</span></div>'
+        f'<div class="senstbl" style="overflow-x:auto"><table>'
+        f'<thead><tr><th>통화</th><th>환오픈(억원)</th><th>자기자본 대비</th><th>−1σ 환손실</th><th>−2σ 환손실</th></tr></thead>'
+        f'<tbody>{body}</tbody></table></div>'
+        f'<div style="font-size:10px;color:var(--muted);margin-top:9px;line-height:1.6">'
+        f'※ 환오픈 금액은 위 환오픈 포지션 모니터 기준(원화 억원). 자기자본 {eok(C["equityKRW"])}(\'25.12).<br>'
+        f'※ σ 손실 = 환오픈 × 연율변동성 × √H (USD {float(fs.get("annual_vol",0.0858))*100:.2f}% · AUD {float(fs.get("annual_vol_aud",0.1017))*100:.2f}% · H={H:g}년). '
+        f'전사 합계는 통화 동시 −σ 가정(상관 미반영, 보수적).</div>')
 
 # ============================================================
 # 5. HTML 렌더 (정적 HTML 디자인 그대로)
@@ -735,6 +772,7 @@ def render() -> str:
       </div>
       <div style="margin-top:15px"><div class="card">{fx_card}</div></div>
       <div style="margin-top:15px"><div class="card">{fx_sens_html()}</div></div>
+      <div style="margin-top:15px"><div class="card">{firm_exposure_html()}</div></div>
       <div class="grid-half"><div class="card">{peer}</div><div class="card">{launch_html()}</div></div>
       <div class="foot">{foot}</div>
     </div>"""
