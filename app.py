@@ -558,9 +558,8 @@ def firm_exposure_html() -> str:
     S0 = fxr
     fs = CFG.get("fx_sens", {})
     H = float(fs.get("horizon_years", 1.0))
-    av_u = float(fs.get("annual_vol", 0.0858)); av_a = float(fs.get("annual_vol_aud", 0.1017))
+    av_u = float(fs.get("annual_vol", 0.0858))
     sig = S0 * av_u * (H ** 0.5)                       # USD 1σ (원)
-    ratio_a = (av_a / av_u) if av_u else 1.0           # AUD 변동성/USD 변동성
     cols = [("−2σ", -2 * sig), ("−1σ", -sig), ("−100", -100.0), ("−50", -50.0),
             ("현재", 0.0), ("+50", 50.0), ("+100", 100.0), ("+1σ", sig), ("+2σ", 2 * sig)]
     def cell(v):                                       # v: 억원
@@ -573,12 +572,12 @@ def firm_exposure_html() -> str:
     sx_krw = sum(r["krw"] for r in usd if r.get("self"))   # SpaceX 환오픈 (case1, 억원)
     nonsx = usd_open - sx_krw                               # SpaceX 제외 USD 환오픈
     Vsx = valUSD; Csx = C["shares"] * C["ipoPrice"]        # 시가 / 취득액($135)
-    base = lambda d: nonsx * (d / S0) + aud_open * (d / S0) * ratio_a   # SpaceX 제외 전사
+    base = lambda d: (nonsx + aud_open) * (d / S0)     # SpaceX 제외 전사 (AUD도 USD 변동률 적용)
     sx1 = lambda d: Vsx * d / 1e8                                       # SpaceX 100% 오픈
     sx2 = lambda d: (Vsx - Csx) * d / 1e8                               # 취득액 헷지
     sx3 = lambda d: ((Vsx - Csx) * d + (Csx / 3) * (min(d, sig) + min(d, 2 * sig))) / 1e8
     upl = lambda d: usd_open * (d / S0)
-    apl = lambda d: aud_open * (d / S0) * ratio_a
+    apl = lambda d: aud_open * (d / S0)
     # case별 전사 환오픈 규모(억원)
     op1 = total
     op2 = nonsx + aud_open + (Vsx - Csx) * S0 / 1e8
@@ -604,8 +603,8 @@ def firm_exposure_html() -> str:
         "</tbody></table></div>"
         f'<div style="font-size:10px;color:var(--muted);margin-top:9px;line-height:1.6">'
         f"※ 환오픈 금액=위 환오픈 포지션 모니터 기준(억원). 자기자본 {eok(C['equityKRW'])} 대비 전사(case1) {op1/eq*100:.1f}% · case1 −2σ 손실 {l2:,.0f}억(자기자본 {l2/eq*100:.1f}%).<br>"
-        f"※ SpaceX만 헷지 가정별로 변동(case1 전액·case2 취득액헷지·case3 1/3단계헷지), 나머지 포지션·AUD는 고정. AUD는 변동성 비율 {ratio_a:.2f}배 환산.<br>"
-        f"※ 환율(원)=USD/KRW 그리드(1σ={sig:,.0f}원=S0×{av_u*100:.2f}%×√{H:g}). 표값=현재환율 대비 환손익.</div>"
+        f"※ SpaceX만 헷지 가정별로 변동(case1 전액·case2 취득액헷지·case3 1/3단계헷지), 나머지 포지션은 고정.<br>"
+        f"※ 환율(원)=USD/KRW 그리드(1σ={sig:,.0f}원=S0×{av_u*100:.2f}%×√{H:g}). AUD 환율도 USD 달러 변동률을 적용하여 민감도 계산. 표값=현재환율 대비 환손익.</div>"
     )
 
 # ============================================================
