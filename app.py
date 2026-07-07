@@ -227,6 +227,34 @@ def fetch_history(ticker: str, period: str = "3mo") -> dict:
     except Exception:
         return None
 
+@st.cache_data(ttl=1800, show_spinner=False)   # 30분 캐시 (일 1회 갱신되는 데이터)
+def fetch_ecos_close():
+    """서울외환시장 원/달러 종가 15:30 (한국은행 ECOS 731Y003/0000003) 최신 확정치.
+    SPCX 원화 환산 전용 기준환율 — 당일치는 익일 반영되므로 항상 최근 확정 영업일 값.
+    실패 시 None (→ 실시간 스팟 폴백). 검증: 2026-07-06 = 1,530.30 (외국환중개 일치)."""
+    try:
+        key = st.secrets.get("ECOS_API_KEY", "sample")
+    except Exception:
+        key = "sample"
+    now_ = dt.datetime.now(KST)
+    start = (now_ - dt.timedelta(days=14)).strftime("%Y%m%d")
+    end = now_.strftime("%Y%m%d")
+    url = (f"https://ecos.bok.or.kr/api/StatisticSearch/{key}/json/kr/1/10/"
+           f"731Y003/D/{start}/{end}/0000003")   # sample 키는 호출당 최대 10건
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            data = json.load(r)
+        rows = (data.get("StatisticSearch") or {}).get("row") or []
+        if not rows:
+            return None
+        last = rows[-1]
+        d = last["TIME"]                          # 'YYYYMMDD'
+        return dict(rate=float(last["DATA_VALUE"]),
+                    date=f"{d[:4]}-{d[4:6]}-{d[6:]}")
+    except Exception:
+        return None
+
 @st.cache_data(ttl=21600, show_spinner=False)   # 6시간 캐시 (API rate limit 보호)
 def fetch_launches(n: int = 7) -> list:
     """SpaceX 예정 발사 (Launch Library 2, lsp__id=121=SpaceX). 실패 시 None."""
@@ -305,6 +333,10 @@ trig_window = len(_recent)
 trig_met = sum(1 for c in _recent if c >= CONSTANTS["trigger"])  # 트리거 충족 일수
 
 px = spcx["price"]; fxr = fx["price"]
+# SPCX 원화 환산 전용: 서울외환시장 종가 15:30 (최근 확정 영업일, 결산 기준과 동일)
+# 나머지 외화(CMTG·전사 환오픈 등)는 기존대로 실시간 스팟(fxr) 유지
+ecos_fx = fetch_ecos_close()
+fxr_spcx = ecos_fx["rate"] if ecos_fx else fxr
 # SPCX 가격·전일종가는 공식 일봉(hist) 기준으로 통일 → 야후 일봉 종가와 일치
 # (hist는 공식 daily 우선, 아직 일봉이 안 뜬 최근 1일만 분봉으로 보완)
 if hist and hist.get("Close"):
@@ -313,14 +345,14 @@ if hist and hist.get("Close"):
         spcx["prev"] = hist["Close"][-2]
 valUSD = C["shares"] * px
 plUSD = valUSD - C["costUSD"]; retUSD = plUSD / C["costUSD"] * 100
-valKRW = valUSD * fxr
+valKRW = valUSD * fxr_spcx                       # SPCX 원화 평가 = 종가15:30 기준
 plKRW = valKRW - C["costKRW"]; retKRW = plKRW / C["costKRW"] * 100
 upside = (px - C["ipoPrice"]) / C["ipoPrice"] * 100
 dayChg = ((px - spcx["prev"]) / spcx["prev"] * 100) if spcx.get("prev") else (spcx.get("day") or 0)
 aboveTrig = (px - C["trigger"]) / C["trigger"] * 100
 expoRatio = valKRW / C["equityKRW"] * 100
 fxChg = (fxr - C["buyFX"]) / C["buyFX"] * 100
-fxPL = valUSD * (fxr - C["buyFX"])      # 환차손익 = 현재 외화평가액 × (현재환율 − 매입환율)
+fxPL = valUSD * (fxr_spcx - C["buyFX"])  # 환차손익 = 외화평가액 × (종가15:30 − 매입환율)
 mktcap = px * C["sharesOut"]
 gMin, gMax = C["bep"], ANALYST["high"]
 def gpos(p): return max(0.0, min(100.0, (p - gMin) / (gMax - gMin) * 100))
@@ -706,7 +738,8 @@ def render() -> str:
       <div class="hsub">평가금액 {usd(valUSD)}</div></div>
     <div class="hcard"><div class="hl">평가손익 (KRW)</div><div class="hv sm {sgn(plKRW)}">{('+' if plKRW>=0 else '')+krw(plKRW)}</div>
       <div class="hsub {sgn(fxPL)}" style="font-weight:700">환평가손익 {('+' if fxPL>=0 else '−')}{krw(abs(fxPL))}</div>
-      <div class="hsub">평가금액 {krw(valKRW)}</div></div>
+      <div class="hsub">평가금액 {krw(valKRW)}</div>
+      <div class="hsub">적용환율 {fxr_spcx:,.2f} ({'종가15:30 · ' + ecos_fx['date'] if ecos_fx else '스팟 폴백'})</div></div>
     <div class="hcard"><div class="hl">수익률</div><div class="hv {sgn(retUSD)}">{pct(retUSD)}</div>
       <div class="hsub">USD 기준 · KRW {pct(retKRW)}</div></div>"""
 
@@ -780,7 +813,9 @@ def render() -> str:
 
     foot = (f'※ 본 대시보드는 공개 시세를 yfinance로 받은 <b>스냅샷</b>이며 실시간(틱)이 아닙니다(5분 캐시·자동갱신).'
             f'<b>참고용</b>이며 투자자문이 아닙니다. 평가손익 = 보유 {C["shares"]:,}주 × 현재가, '
-            f'매입원가는 제반비용 포함 약정액(575,111주 × BEP ${C["bep"]:.2f}). 환율 가정 매입 {C["buyFX"]:,.2f} / 자기자본 {eok(C["equityKRW"])} (\'25.12 기준). '
+            f'매입원가는 제반비용 포함 약정액(575,111주 × BEP ${C["bep"]:.2f}). '
+            f'SPCX 원화 환산은 <b>서울외환시장 종가 15:30</b>(한국은행 ECOS, 최근 확정 영업일 {ecos_fx["date"] if ecos_fx else "—"}) 기준, '
+            f'그 외 외화는 실시간 스팟. 환율 가정 매입 {C["buyFX"]:,.2f} / 자기자본 {eok(C["equityKRW"])} (\'25.12 기준). '
             f'기준 {asof}.')
 
     return f"""{CSS}
