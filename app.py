@@ -525,6 +525,112 @@ def fx_sens_html() -> str:
         f"※ 기준 S0=현재환율 {S0:,.1f} · 1σ={sig:,.0f}원(=S0×연율σ {av*100:.2f}%×√{H:g}, 10년 변동성). 표값은 현재환율 대비 환손익 변화.</div>"
     )
 
+# ---- 분기 평가손익 현황 (장부·기준가 기준) ----
+def quarterly_pnl_html() -> str:
+    qs = CFG.get("quarters", []); nm = CFG.get("nav_model", {})
+    if not qs or not nm:
+        return ""
+    units = C["costKRW"]                                  # 원본 좌수 = 납입원본(KRW)
+    ksh = float(nm["kfund_shares"]); tun = float(nm["trust_total_units"])
+
+    def nav_model(p, f):
+        """기준가 모델: 캐피탈계정(한국펀드 주식×주가 + 미국펀드 순현금) → 신탁 NAV → 기준가.
+        현금·미수이자·미지급보수는 최근 확정 대장 기준 고정."""
+        cap = ksh * p + float(nm["us_net_cash_usd"])
+        nav = ((cap + float(nm["trust_usd_cash"])) * f
+               + float(nm["trust_krw_cash"]) + float(nm["trust_accr_int"])
+               - float(nm["trust_accr_fee"]))
+        return nav / tun * 1000.0
+
+    def pl_of(navp):                                      # 당사 평가손익(누계, KRW)
+        return units * navp / 1000.0 - units
+
+    last = qs[-1]
+    a_px, a_fx = float(last["anchor_px"]), float(last["anchor_fx"])
+    resid = float(last["nav_price"]) - nav_model(a_px, a_fx)   # 고시-모델 잔차 (보수 적수 등)
+    last_pl = pl_of(float(last["nav_price"]))
+
+    # 진행 분기 예상: 현재가(최근 종가) × 종가15:30 환율
+    est = None
+    if px and fxr_spcx:
+        nav_e = nav_model(px, fxr_spcx) + resid
+        pl_e = pl_of(nav_e)
+        d_px = (nav_model(px, a_fx) - nav_model(a_px, a_fx)) * units / 1000.0    # 주가 요인
+        d_fx = (nav_model(px, fxr_spcx) - nav_model(px, a_fx)) * units / 1000.0  # 환율 요인
+        est = dict(px=px, nav=nav_e, pl=pl_e, qoq=pl_e - last_pl, d_px=d_px, d_fx=d_fx)
+
+    def eoks(n):                                          # 부호 포함 억원
+        return ("+" if n >= 0 else "−") + f"{abs(n)/1e8:,.1f}억"
+
+    badge_done = ('<span style="background:#e6f4ec;color:var(--green);font-size:10.5px;'
+                  'padding:2px 9px;border-radius:6px;font-weight:700">확정</span>')
+    badge_est = ('<span style="background:var(--orange-soft);color:var(--orange);font-size:10.5px;'
+                 'padding:2px 9px;border-radius:6px;font-weight:700">예상</span>')
+
+    # KPI 3칸
+    kpi = ('<div class="pnl" style="grid-template-columns:repeat(3,1fr);margin-bottom:14px">'
+           f'<div class="pnl-i"><span>확정 기준가 ({last["label"]})</span>'
+           f'<b>{float(last["nav_price"]):,.3f}</b><u>{last["date"]} 기준</u></div>'
+           f'<div class="pnl-i"><span>장부 평가손익 누계 (확정)</span>'
+           f'<b class="{sgn(last_pl)}">{eoks(last_pl)}</b>'
+           f'<u>수익률 {last_pl/units*100:+.2f}% · 원본 {eok(units)}</u></div>')
+    if est:
+        kpi += (f'<div class="pnl-i" style="background:var(--orange-soft)"><span>진행분기 예상 (라이브)</span>'
+                f'<b class="{sgn(est["pl"])}">{eoks(est["pl"])}</b>'
+                f'<u>현재가 ${est["px"]:.2f} × {fxr_spcx:,.2f}</u></div>')
+    else:
+        kpi += ('<div class="pnl-i"><span>진행분기 예상</span><b>—</b><u>시세 조회 실패</u></div>')
+    kpi += '</div>'
+
+    # 분기 테이블
+    rows = ""
+    prev_pl = None
+    for q_ in qs:
+        pl_ = pl_of(float(q_["nav_price"]))
+        chg = pl_ - prev_pl if prev_pl is not None else pl_
+        rows += (f'<tr><td class="stage">{q_["label"]}<small>{q_["date"]}</small></td>'
+                 f'<td style="text-align:right">${float(q_["anchor_px"]):.2f}</td>'
+                 f'<td style="text-align:right">{float(q_["anchor_fx"]):,.2f}</td>'
+                 f'<td style="text-align:right;font-weight:700">{float(q_["nav_price"]):,.3f}</td>'
+                 f'<td style="text-align:right;font-weight:700" class="{sgn(pl_)}">{eoks(pl_)}</td>'
+                 f'<td style="text-align:right" class="{sgn(chg)}">{eoks(chg)}</td>'
+                 f'<td style="text-align:center">{badge_done}</td></tr>')
+        prev_pl = pl_
+    if est:
+        rows += (f'<tr style="background:var(--beige2)"><td class="stage">진행분기<small>라이브 예상</small></td>'
+                 f'<td style="text-align:right">${est["px"]:.2f}*</td>'
+                 f'<td style="text-align:right">{fxr_spcx:,.2f}*</td>'
+                 f'<td style="text-align:right;font-weight:700">≈{est["nav"]:,.3f}</td>'
+                 f'<td style="text-align:right;font-weight:700" class="{sgn(est["pl"])}">{eoks(est["pl"])}</td>'
+                 f'<td style="text-align:right" class="{sgn(est["qoq"])}">{eoks(est["qoq"])}</td>'
+                 f'<td style="text-align:center">{badge_est}</td></tr>')
+
+    # 증감 요인 칩
+    chips = ""
+    if est:
+        chip = lambda lab, v: (f'<span style="border:1px solid var(--line);border-radius:8px;'
+                               f'padding:4px 11px;font-size:11.5px;background:#fff">{lab} '
+                               f'<b class="{sgn(v)}">{eoks(v)}</b></span>')
+        chips = ('<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">'
+                 '<span style="font-size:11.5px;font-weight:700;color:var(--muted)">당분기 증감 요인:</span>'
+                 + chip(f'주가 ${a_px:.2f}→${est["px"]:.2f}', est["d_px"])
+                 + chip(f'환율 {a_fx:,.2f}→{fxr_spcx:,.2f}', est["d_fx"])
+                 + '</div>')
+
+    return (f'<div class="ctitle">분기 평가손익 현황<span class="note">장부(기준가) 기준 · 단위 억원</span></div>'
+            + kpi
+            + '<div style="overflow-x:auto"><table><thead><tr>'
+              '<th>분기</th><th>적용주가</th><th>적용환율</th><th>기준가</th>'
+              '<th>평가손익 누계</th><th>당분기 증감</th><th>상태</th></tr></thead>'
+            + f'<tbody>{rows}</tbody></table></div>'
+            + chips
+            + ('<div style="font-size:10px;color:var(--muted);margin-top:10px;line-height:1.6">'
+               '※ 확정 = 사무관리사 고시 기준가 × 원본좌수 (적용주가·환율은 기준가 내재값 = 분기말 종가 기준). '
+               '누계 = 평가액 − 납입원본, 당분기 증감 = 누계(t) − 누계(t−1).<br>'
+               '※ 예상(*) = 오늘이 분기말이라 가정한 라이브 추정 — 주가는 SPCX 현재가(최근 종가), 환율은 서울외환시장 종가 15:30. '
+               '기준가 모델 = 캐피탈계정(한국펀드 주식×주가 + 미국펀드 순현금) + 신탁 현금·미수이자 − 미지급보수를 '
+               f'총좌수로 나눔 (고시 잔차 {resid:+.3f} 보정). 현금 항목은 최근 확정 대장 기준 고정 — 분기 중 보수 소진·이자 발생분 미반영.</div>'))
+
 # ---- 환오픈 포지션 데이터 (fx_book 표 + 전사 익스포저 공용) ----
 def fx_book_data():
     static = CFG.get("fx_book", [])
@@ -832,6 +938,7 @@ def render() -> str:
           <div class="card"><div class="ctitle">SPCX 주가 추이 <span class="note">일봉·거래량</span></div>{chart_svg(hist)}</div>
           <div class="card">{etf}</div><div class="card">{market}</div><div class="card news">{news_card}</div></div>
       </div>
+      <div style="margin-top:15px"><div class="card">{quarterly_pnl_html()}</div></div>
       <div style="margin-top:15px"><div class="card">{fx_card}</div></div>
       <div style="margin-top:15px"><div class="card">{fx_sens_html()}</div></div>
       <div style="margin-top:15px"><div class="card">{firm_exposure_html()}</div></div>
